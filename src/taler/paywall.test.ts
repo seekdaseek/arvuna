@@ -191,3 +191,26 @@ test("merchant backend down: 500 internal-payment-error, never a free resource",
 test("unprotected routes are untouched", async () => {
   assert.equal(await (await get("/free")).text(), "free");
 });
+
+// ---- the reference client, end to end against the same paywall -----------------------------------
+
+import { payAndRetry } from "./client.ts";
+
+for (const format of ["ietf", "x402"] as const) {
+  test(`reference client pays and unlocks the resource (${format})`, async () => {
+    const r = await payAndRetry(base + "/api/quote", format, async (c) => {
+      assert.match(c.talerPayUri, /^taler:\/\/pay\//);
+      fm.pay(c.orderId); // stands in for a Taler wallet paying the order
+    });
+    assert.equal(r.challengeStatus, 402);
+    assert.equal(r.finalStatus, 200);
+    assert.equal(JSON.parse(r.body).secret, "the paid thing");
+    assert.ok(r.receipt, "a receipt header came back");
+  });
+
+  test(`reference client that does not pay stays locked (${format})`, async () => {
+    const r = await payAndRetry(base + "/api/quote", format, async () => { /* wallet declined */ });
+    assert.equal(r.finalStatus, 402);
+    assert.equal(r.receipt, undefined);
+  });
+}

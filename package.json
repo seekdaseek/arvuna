@@ -10,7 +10,8 @@
     "test": "node --test \"src/**/*.test.ts\"",
     "typecheck": "tsc -p .",
     "check": "node src/conformance/cli.ts",
-    "demo": "node src/taler/demo-server.ts"
+    "demo": "node src/taler/demo-server.ts",
+    "e2e": "node scripts/e2e-taler-demo.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

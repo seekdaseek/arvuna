@@ -39,4 +39,18 @@ Anthropic Claude, used through the Claude app, configured as `claude-opus-5-5`. 
 - **Review and testing:** every rule was written from the fetched spec text and cites its section. The tests use fixtures copied from the specifications as the known-good side and deliberately broken variants as the known-bad side, so each rule is shown to be able to fail. 40 tests pass in total. The maintainer has not yet read the code line by line; this entry will be updated when that review is done.
 - **Prompts and outputs:** summary only. Continuation of the same brief; the model returned the files listed above.
 
+### 2026-10-20: reference client, end-to-end and conformance run scripts
+- **Model:** `claude-sonnet-5-5`, as reported by Claude Code at the time.
+- **Used for:** `src/taler/client.ts` (a reference client that reads the 402, pays through an injected function and retries with the right credential), `scripts/e2e-taler-demo.ts`, `scripts/taler-wallet.sh`, `scripts/run-conformance.ts`, and four added tests.
+- **Human part:** the maintainer's brief; the paid step itself needs a person and was not run by the model.
+- **Review and testing:** the client is tested against the paywall in both formats, with a payment stand-in; the end-to-end script was run once and failed at the payment step for want of demo money, and that output is recorded as it was. `scripts/run-conformance.ts` ran against six public endpoints and its output is kept under `docs/conformance/`. The maintainer has not yet read the code line by line; this entry will be updated when that review is done.
+- **Prompts and outputs:** summary only. Continuation of the same brief.
+
+### 2026-10-20: proof and conformance documents, README status, roadmap
+- **Model:** `claude-sonnet-5-5`, as reported by Claude Code at the time.
+- **Used for:** drafting `docs/proof-taler-demo-20261020.md`, `docs/conformance-run-20261020.md`, `docs/ROADMAP.md`, the generated per-target tables in `docs/conformance/`, and the Status section of `README.md`.
+- **Human part:** the milestone descriptions in the roadmap are the maintainer's, taken from the project notes; the model wrote the prose around them. The findings were each re-checked against the raw responses before being written down.
+- **Review and testing:** every output quoted in the documents was produced by a command run during the session. Counts in the documents (44 tests, 6 targets) were checked against the actual test and run output. The maintainer has not yet reviewed these documents; this entry will be updated when that review is done.
+- **Prompts and outputs:** summary only. Continuation of the same brief.
+
 New entries are added here whenever generated content goes into a commit, with the model, how it was used and a summary of the prompts and outputs.
