@@ -74,4 +74,11 @@ Anthropic Claude, used through the Claude app, configured as `claude-opus-5-5`. 
 - **Review and testing:** every command in the table and every output block was run for real before it was written down: `npm test` (45 of 45), the checker against a public endpoint, the demo server's start line, the merchant-side `paid` check for both order ids, and the two `FAIL` rows for the findings. The one observation timestamp in the checker output is replaced by an ellipsis, and the README says so. Maintainer review of this change: not recorded yet.
 - **Prompts and outputs:** summary only. One brief asking for the README polish and the licence; the model returned the edits above.
 
+### 2026-10-20: roadmap and README brought in line with the six-milestone proposal
+- **Model:** `claude-sonnet-5-5`, as reported by Claude Code at the time.
+- **Used for:** rewriting the milestone list in `docs/ROADMAP.md` (six milestones with hours) and adding items 5 and 6 to "What arvuna adds" in `README.md`.
+- **Human part:** the maintainer decided the milestones, their names and hours, and described the content of M4 and M5; the model wrote the prose from the project's business plan and the brief.
+- **Review and testing:** the hours were checked to add up to the total in the plan (1,140). No code changed; `npm test` still passes 45 of 45 and the personal-information search of the tree is empty. Maintainer review of this change: not recorded yet.
+- **Prompts and outputs:** summary only. One brief asking for the repository to match the proposal; the model returned the edits above.
+
 New entries are added here whenever generated content goes into a commit, with the model, how it was used and a summary of the prompts and outputs.

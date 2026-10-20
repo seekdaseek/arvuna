@@ -103,6 +103,8 @@ Both are designed to carry any payment method. So far every published method is 
    - bank-native webhooks;
    - account-information aggregators, as a slow fallback.
 4. **Conformance suite.** A method-neutral test harness and test vectors for both standards: challenge and credential format, replay and idempotency, expiry, error semantics and receipts. It runs from the command line and in CI against any server or client.
+5. **Pay once, spend many times.** A session method for both standards. A reader tops up a small balance once, over Taler or SEPA Instant, and spends it across many requests. The reader chooses whether leftover money is refunded or kept, and the balance can be spent only on the site that sold it.
+6. **Shop backends.** An adapter interface that lets an open source shop keep its own orders and payment methods while arvuna answers the 402. A first adapter covers one real open source shop platform, and a guide covers the existing Taler shop plugins.
 
 An optional reference adapter covers Moldova's MIA instant payment system through a bank's merchant API.
 
