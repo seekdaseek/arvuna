@@ -23,4 +23,4 @@ Known limits of the prototype: issued orders and used credentials are held in me
 | M3 | **Instant-payment method.** Request-to-Pay with QR, generic over SEPA Instant through the EPC QR standard and national rails, with a settlement watcher interface shaped like the Taler Bank Revenue API. Moldova's MIA is an optional reference rail. |
 | M4 | **Pilot and packaging.** One live pilot site charging per request, reproducible packages (Guix or Nix), documentation, an accessibility pass, and both method drafts sent to the IETF and x402 maintainers. |
 
-The licence is still to be confirmed; see the README.
+Code is under Apache-2.0 (see LICENSE); specifications are released under CC BY 4.0.

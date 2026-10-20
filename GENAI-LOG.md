@@ -67,4 +67,11 @@ Anthropic Claude, used through the Claude app, configured as `claude-opus-5-5`. 
 - **Review and testing:** the raw transcripts were scanned for personal data and secrets before publication (none found). Stale statements ("not run", test counts) were located with a search and corrected.
 - **Prompts and outputs:** summary only.
 
+### 2026-10-20: README verify table, real expected output, licence file
+- **Model:** `claude-sonnet-5-5`, as reported by Claude Code at the time.
+- **Used for:** the "Verify in five minutes" table and the "Expected output" blocks in `README.md`, the licence line, and the `license` field in `package.json`. The `LICENSE` file is the unmodified Apache License 2.0 text downloaded from apache.org (11,358 bytes, byte-identical to the download), not generated.
+- **Human part:** the maintainer decided the licence (Apache-2.0 for code, CC BY 4.0 for specifications) and the structure of the README changes.
+- **Review and testing:** every command in the table and every output block was run for real before it was written down: `npm test` (45 of 45), the checker against a public endpoint, the demo server's start line, the merchant-side `paid` check for both order ids, and the two `FAIL` rows for the findings. The one observation timestamp in the checker output is replaced by an ellipsis, and the README says so. Maintainer review of this change: not recorded yet.
+- **Prompts and outputs:** summary only. One brief asking for the README polish and the licence; the model returned the edits above.
+
 New entries are added here whenever generated content goes into a commit, with the model, how it was used and a summary of the prompts and outputs.

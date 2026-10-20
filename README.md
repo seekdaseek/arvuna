@@ -4,7 +4,7 @@ Open payment methods for HTTP 402 on public payment rails.
 
 ## Status
 
-**Prototype** (2026-10-20). It shows that the idea is feasible. It is not the finished project: the production work is listed as milestones in [docs/ROADMAP.md](docs/ROADMAP.md), and none of that has been started.
+**Prototype.** It shows that the idea is feasible. It is not the finished project: the production work is listed as milestones in [docs/ROADMAP.md](docs/ROADMAP.md), and none of that has been started.
 
 What runs, each part with tests that were executed (`npm test`: 45 tests, all passing):
 
@@ -17,14 +17,73 @@ What does not run yet:
 
 - No SEPA Instant method, no settlement watcher, no packaging, no pilot.
 
-Try it (Node 24 or later):
+Try it (Node 24 or later). The expected output below was produced by running each command.
 
 ```
 npm install
-npm test
-node src/conformance/cli.ts https://example.org/some-paid-url
-npm run demo        # the Taler-backed paywall on http://127.0.0.1:8402/api/quote
 ```
+
+```
+npm test
+```
+
+Expected output (summary lines):
+
+```
+ℹ tests 45
+ℹ suites 0
+ℹ pass 45
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+```
+node src/conformance/cli.ts https://mpp.dev/api/ping/paid
+```
+
+Expected output (first 15 lines; the observation timestamp is elided, the rest is as printed, and a live endpoint can change its answer):
+
+```
+Target   https://mpp.dev/api/ping/paid
+Request  GET, no credential sent   Response 402   Observed …
+Offers   IETF Payment: yes   x402: no
+
+RULE       RESULT CHECK                                                              SPEC / DETAIL
+IETF-01    PASS   Challenge is sent with status 402                                  draft-httpauth-payment-01, Status Codes  — status 402
+IETF-02    PASS   402 carries Cache-Control: no-store                                draft-httpauth-payment-01, Caching  — Cache-Control: no-store
+IETF-03    PASS   Challenge syntax is valid auth-params, no duplicate parameters     draft-httpauth-payment-01, Challenge (WWW-Authenticate)
+IETF-04    PASS   id present and non-empty                                           draft-httpauth-payment-01, Required Parameters (id)
+IETF-05    PASS   realm present                                                      draft-httpauth-payment-01, Required Parameters (realm)
+IETF-06    PASS   method present, lowercase ASCII letters only                       draft-httpauth-payment-01, Method Identifier Format (payment-method-id = 1*LOWERALPHA)  — method="tempo"
+IETF-07    PASS   intent syntax valid and defined in a published intent spec         draft-httpauth-payment-01, Intent Identifiers  — intent="charge"
+IETF-08    PASS   request present, base64url without padding, JSON object            draft-httpauth-payment-01, Required Parameters (request)
+IETF-09    PASS   request JSON is serialised with JCS (RFC 8785)                     draft-httpauth-payment-01, Required Parameters (request)
+IETF-10    PASS   charge: request.amount is a string of base units                   draft-payment-intent-charge-00, Shared Fields (Required)  — amount="100000"
+```
+
+```
+npm run demo
+```
+
+Expected output (the Taler-backed paywall, which needs network access to the public Taler demo; leave it running and `curl -i http://127.0.0.1:8402/api/quote` answers `402`):
+
+```
+arvuna demo on http://127.0.0.1:8402  paid route: /api/quote  backend: https://backend.demo.taler.net
+```
+
+`npm run e2e` needs demo money in a Taler test wallet and is described in [docs/proof-taler-demo-20261020.md](docs/proof-taler-demo-20261020.md); it is not part of this quick check.
+
+## Verify in five minutes
+
+| Claim | How to check | Evidence |
+|---|---|---|
+| 45 tests pass | `npm install && npm test` | Output above; tests in [common](src/common/common.test.ts), [paywall](src/taler/paywall.test.ts), [conformance](src/conformance/conformance.test.ts) |
+| A protected route answers 402 in both formats at once | `npm run demo`, then `curl -i http://127.0.0.1:8402/api/quote`: look for `www-authenticate: Payment` and `payment-required` headers | [Decoded response, from a real merchant order](docs/proof-taler-demo-20261020.md#3-the-protected-route-answers-402-in-both-formats) |
+| A real Taler demo order was paid in each format: IETF order `2026.293-Z2SX6Z5QR12R2`, x402 order `2026.293-CXZDGE1S3PW1M` | `curl -s -H 'Authorization: Bearer secret-token:sandbox' https://backend.demo.taler.net/instances/sandbox/private/orders/2026.293-Z2SX6Z5QR12R2 \| grep -o '"order_status": *"[a-z]*"'` prints `paid`; repeat with the other id. `sandbox` is the published password of the public demo instance, and the money is demo money | [Paid-run transcript and merchant check](docs/proof-taler-demo-20261020.md#5-the-paid-run), [raw output](docs/proof-taler-paid-run-raw.txt) |
+| The conformance checker was run on six public endpoints and found two things | `node src/conformance/cli.ts 'https://2s.io/api/weather/zip?zip=94103' \| grep FAIL` and `node src/conformance/cli.ts https://x402.ochinimus.app/api/sol-price \| grep FAIL` each print one `FAIL` row | [Six endpoints, two findings](docs/conformance-run-20261020.md), [per-target tables](docs/conformance) |
+| A bug found by the paid run (every order had the same fulfillment URL, so a wallet refused to pay a repeat purchase) was fixed, with a test written first | `node --test --test-name-pattern="own fulfillment_url" src/taler/paywall.test.ts` | [First attempt and cause](docs/proof-taler-demo-20261020.md#attempt-1-ietf-passes-x402-fails-a-bug-in-this-repository), [fix commit 33fcd57](https://github.com/seekdaseek/arvuna/commit/33fcd57), [raw first attempt](docs/proof-taler-paid-run-raw-attempt1.txt) |
 
 ## The problem
 
@@ -59,7 +118,7 @@ See [GENAI-LOG.md](GENAI-LOG.md).
 
 ## Licence
 
-To be confirmed. All code and specifications will be released under a recognised free software licence.
+Apache-2.0. See [LICENSE](LICENSE). Specifications are released under CC BY 4.0.
 
 ## Contact
 

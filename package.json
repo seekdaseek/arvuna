@@ -2,6 +2,7 @@
   "name": "arvuna",
   "version": "0.0.1",
   "private": true,
+  "license": "Apache-2.0",
   "description": "Open payment methods for HTTP 402 on public payment rails. Prototype.",
   "type": "module",
   "engines": { "node": ">=24" },
