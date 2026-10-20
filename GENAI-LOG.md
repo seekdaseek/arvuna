@@ -25,4 +25,11 @@ Anthropic Claude, used through the Claude app, configured as `claude-opus-5-5`. 
 - **Review and testing:** the code was written against the spec text (draft-httpauth-payment-01 and x402 v2), which the model fetched and read during the session. The three HMAC test vectors published in the draft pass, which is an independent check on the challenge binding. `npm test` and `tsc` ran with the output observed. The maintainer has not yet read the code line by line; this entry will be updated when that review is done.
 - **Prompts and outputs:** summary only. One brief asking for a Taler method prototype and a conformance checker; the model returned the files listed above.
 
+### 2026-10-20: Taler merchant client and dual-format paywall
+- **Model:** `claude-sonnet-5-5`, as reported by Claude Code at the time.
+- **Used for:** `src/taler/` (an HTTP-only client for the GNU Taler merchant backend API, amount conversion, the paywall that answers 402 in both the IETF Payment format and x402 v2 and verifies the retry, an offline fake merchant for tests, a demo server) and `scripts/probe-merchant.ts`, with their tests.
+- **Human part:** the maintainer's brief set the architecture: talk to Taler over HTTP only, no Taler library, both formats on one route.
+- **Review and testing:** field names were taken from the fetched spec text and the merchant API documentation, and the merchant endpoints were probed live on backend.demo.taler.net before the client was written. 23 tests pass. Three deliberate code breaks (never mark a credential used, accept unpaid orders, skip the challenge-binding check) were each caught by a failing test, so the tests do detect those faults. The live demo server returned a real 402 backed by a real KUDOS order. The maintainer has not yet read the code line by line; this entry will be updated when that review is done.
+- **Prompts and outputs:** summary only. Continuation of the same brief; the model returned the files listed above.
+
 New entries are added here whenever generated content goes into a commit, with the model, how it was used and a summary of the prompts and outputs.
