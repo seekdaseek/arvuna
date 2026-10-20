@@ -1,6 +1,6 @@
 # Conformance run: arvuna-check against six 402 endpoints, 2026-10-20
 
-Tool: `arvuna-check` from this repository (`node src/conformance/cli.ts URL`), run from the working tree before the commit that adds this document. Each target received **one unauthenticated GET**. No credential was sent and nothing was paid. Full per-target rule tables are in [docs/conformance/](conformance/), regenerated with `node scripts/run-conformance.ts 20261020`.
+Tool: `arvuna-check` from this repository (`node src/conformance/cli.ts URL`), run from the working tree before the commit that adds this document. Each target received **one unauthenticated GET**. No credential was sent and nothing was paid. Full per-target rule tables are in [docs/conformance/](conformance/), regenerated with `node scripts/run-conformance.ts`.
 
 Rules come from the specifications as fetched on 2026-10-20:
 

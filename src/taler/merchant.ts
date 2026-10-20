@@ -1,6 +1,6 @@
 // Minimal client for the GNU Taler merchant backend REST API. HTTP only: no Taler library is
 // imported, vendored or linked. Endpoint behaviour was probed against https://backend.demo.taler.net
-// on 2026-10-20 (see docs/proof-taler-demo-20261020.md).
+// on 2026-10-20 (see docs/proof-taler-demo.md).
 
 export type MerchantAuth =
   | { kind: "password"; password: string } // exchanged for a login token at /private/token

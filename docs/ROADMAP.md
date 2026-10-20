@@ -9,8 +9,8 @@ Two parts: what exists now (a prototype, built before any funding decision) and 
 | Taler merchant client over HTTP: order creation, status with long-polling, public 402 with `taler_pay_uri` | runs, probed live against the Taler demo backend | `src/taler/merchant.ts` |
 | One protected route that answers 402 in both the IETF Payment format and x402 v2, verifies a retry in either format, returns `Payment-Receipt` or `PAYMENT-RESPONSE`, single-use, no verb bypass | runs; 17 tests against an offline stand-in for the merchant; live 402 and verified payments against the demo merchant | `src/taler/paywall.ts` |
 | Reference client | runs in tests and in the live paid run | `src/taler/client.ts` |
-| Paid end-to-end run with the Taler wallet | **done**: both formats paid with demo KUDOS and served with a receipt, after a first attempt exposed and fixed a bug; transcript in the proof document | [proof-taler-demo-20261020.md](proof-taler-demo-20261020.md) |
-| Conformance checker `arvuna-check`: one unauthenticated request, parses the IETF challenge and the x402 requirement, 17 IETF and 15 x402 rule groups with spec citations, never pays | runs; 17 tests with spec fixtures; run against six public endpoints | `src/conformance/`, [conformance-run-20261020.md](conformance-run-20261020.md) |
+| Paid end-to-end run with the Taler wallet | **done**: both formats paid with demo KUDOS and served with a receipt, after a first attempt exposed and fixed a bug; transcript in the proof document | [proof-taler-demo.md](proof-taler-demo.md) |
+| Conformance checker `arvuna-check`: one unauthenticated request, parses the IETF challenge and the x402 requirement, 17 IETF and 15 x402 rule groups with spec citations, never pays | runs; 17 tests with spec fixtures; run against six public endpoints | `src/conformance/`, [conformance-run.md](conformance-run.md) |
 
 Known limits of the prototype: issued orders and used credentials are held in memory; every unauthenticated request creates a merchant order; the checker looks at the challenge only and cannot check anything that needs the server's secret.
 

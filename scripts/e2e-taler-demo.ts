@@ -1,6 +1,6 @@
 // End-to-end paid run against the public Taler demo: protected route -> 402 -> pay with the external
 // wallet CLI (Docker image from tools/wallet) -> retry -> 200 plus receipt.
-// Needs the demo server running (npm run demo) and demo KUDOS in the test wallet (see docs/proof-taler-demo-20261020.md).
+// Needs the demo server running (npm run demo) and demo KUDOS in the test wallet (see docs/proof-taler-demo.md).
 //   node scripts/e2e-taler-demo.ts [ietf|x402|both]
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";

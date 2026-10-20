@@ -48,7 +48,7 @@ Anthropic Claude, used through the Claude app, configured as `claude-opus-5-5`. 
 
 ### 2026-10-20: proof and conformance documents, README status, roadmap
 - **Model:** `claude-sonnet-5-5`, as reported by Claude Code at the time.
-- **Used for:** drafting `docs/proof-taler-demo-20261020.md`, `docs/conformance-run-20261020.md`, `docs/ROADMAP.md`, the generated per-target tables in `docs/conformance/`, and the Status section of `README.md`.
+- **Used for:** drafting `docs/proof-taler-demo.md`, `docs/conformance-run.md`, `docs/ROADMAP.md`, the generated per-target tables in `docs/conformance/`, and the Status section of `README.md`.
 - **Human part:** the milestone descriptions in the roadmap are the maintainer's, taken from the project notes; the model wrote the prose around them. The findings were each re-checked against the raw responses before being written down.
 - **Review and testing:** every output quoted in the documents was produced by a command run during the session. Counts in the documents (44 tests, 6 targets) were checked against the actual test and run output. Reviewed by the maintainer.
 - **Prompts and outputs:** summary only. Continuation of the same brief.
@@ -62,7 +62,7 @@ Anthropic Claude, used through the Claude app, configured as `claude-opus-5-5`. 
 
 ### 2026-10-20: proof document rewritten from the paid run
 - **Model:** `claude-sonnet-5-5`, as reported by Claude Code at the time.
-- **Used for:** rewriting `docs/proof-taler-demo-20261020.md` around the real transcripts (both attempts, the bug, the merchant-side check), and updating the status lines in `README.md`, `docs/ROADMAP.md` and `docs/conformance-run-20261020.md`.
+- **Used for:** rewriting `docs/proof-taler-demo.md` around the real transcripts (both attempts, the bug, the merchant-side check), and updating the status lines in `README.md`, `docs/ROADMAP.md` and `docs/conformance-run.md`.
 - **Human part:** none of the facts were supplied by the model from memory: every quoted line comes from the raw transcript files `docs/proof-taler-paid-run-raw*.txt` or from the merchant backend queries shown. Reviewed by the maintainer.
 - **Review and testing:** the raw transcripts were scanned for personal data and secrets before publication (none found). Stale statements ("not run", test counts) were located with a search and corrected.
 - **Prompts and outputs:** summary only.

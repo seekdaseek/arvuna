@@ -73,7 +73,7 @@ payment-required: eyJ4NDAyVmVyc2lvbiI6Mi…
 }
 ```
 
-The order id and pay URI come from a real order created on the demo merchant. `amount` is `10` because KUDOS has two fractional digits, so `KUDOS:0.1` is 10 base units. `arvuna-check` passes all 29 of its rules on this response (see [conformance-run-20261020.md](conformance-run-20261020.md)).
+The order id and pay URI come from a real order created on the demo merchant. `amount` is `10` because KUDOS has two fractional digits, so `KUDOS:0.1` is 10 base units. `arvuna-check` passes all 29 of its rules on this response (see [conformance-run.md](conformance-run.md)).
 
 ### 4. The wallet CLI reads the order (before funding)
 

@@ -4,7 +4,6 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { observe } from "../src/conformance/observe.ts";
 import { evaluate, renderMarkdown } from "../src/conformance/report.ts";
 
-const day = process.argv[2] ?? new Date().toISOString().slice(0, 10).replaceAll("-", "");
 const targets: { name: string; url: string; note: string }[] = [
   { name: "arvuna-taler-prototype", url: "http://127.0.0.1:8402/api/quote", note: "Part A prototype, running locally against the public Taler demo merchant" },
   { name: "agentfeed", url: "https://x402.ochinimus.app/api/sol-price", note: "Maintainer's own service; route chosen from /.well-known/x402.json" },
@@ -19,7 +18,7 @@ for (const t of targets) {
   try {
     const o = await observe(t.url);
     const r = evaluate(o);
-    writeFileSync(`docs/conformance/${day}-${t.name}.md`, `# ${t.name}\n\n${t.note}\n\n${renderMarkdown(r)}\n`);
+    writeFileSync(`docs/conformance/${t.name}.md`, `# ${t.name}\n\n${t.note}\n\n${renderMarkdown(r)}\n`);
     rows.push(`| ${t.name} | ${t.url} | ${r.status} | ${r.offers.ietf ? "yes" : "no"} | ${r.offers.x402 ? "yes" : "no"} | ${r.counts.PASS} | ${r.counts.FAIL} | ${r.counts.WARN} | ${r.counts["N/A"]} |`);
     console.log(`\n### ${t.name}  ${t.url}  -> ${r.status}  pass ${r.counts.PASS} fail ${r.counts.FAIL} warn ${r.counts.WARN}`);
     for (const x of r.results.filter((x) => x.status === "FAIL" || x.status === "WARN")) console.log(`  ${x.status} ${x.id} ${x.rule} — ${x.detail ?? ""}`);
