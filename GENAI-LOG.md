@@ -32,4 +32,11 @@ Anthropic Claude, used through the Claude app, configured as `claude-opus-5-5`. 
 - **Review and testing:** field names were taken from the fetched spec text and the merchant API documentation, and the merchant endpoints were probed live on backend.demo.taler.net before the client was written. 23 tests pass. Three deliberate code breaks (never mark a credential used, accept unpaid orders, skip the challenge-binding check) were each caught by a failing test, so the tests do detect those faults. The live demo server returned a real 402 backed by a real KUDOS order. The maintainer has not yet read the code line by line; this entry will be updated when that review is done.
 - **Prompts and outputs:** summary only. Continuation of the same brief; the model returned the files listed above.
 
+### 2026-10-20: conformance checker prototype
+- **Model:** `claude-sonnet-5-5`, as reported by Claude Code at the time.
+- **Used for:** `src/conformance/` (the `arvuna-check` command-line tool: a request observer that never sends a credential, rule checks for the IETF Payment challenge and for the x402 v2 payment requirement, report rendering) and its tests.
+- **Human part:** the maintainer's brief fixed what the tool may and may not do: one request, expect 402, never pay, never send a credential, cite the spec for every rule.
+- **Review and testing:** every rule was written from the fetched spec text and cites its section. The tests use fixtures copied from the specifications as the known-good side and deliberately broken variants as the known-bad side, so each rule is shown to be able to fail. 40 tests pass in total. The maintainer has not yet read the code line by line; this entry will be updated when that review is done.
+- **Prompts and outputs:** summary only. Continuation of the same brief; the model returned the files listed above.
+
 New entries are added here whenever generated content goes into a commit, with the model, how it was used and a summary of the prompts and outputs.
