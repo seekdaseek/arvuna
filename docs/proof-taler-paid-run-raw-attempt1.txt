@@ -1,0 +1,34 @@
+
+> arvuna@0.0.1 e2e
+> node scripts/e2e-taler-demo.ts
+
+wallet balance before:
+KUDOS:10 in=KUDOS:0 out=KUDOS:0 @e:exchange.demo.taler.net
+
+=== ietf ===  GET http://127.0.0.1:8402/api/quote
+402 received. order 2026.293-CNZGQSBYQEPPY
+  taler_pay_uri taler://pay/backend.demo.taler.net/instances/sandbox/2026.293-CNZGQSBYQEPPY/
+paying with the wallet CLI ...
+  extra: undefined,
+  minimum_age: 0,
+  default_money_pot: undefined
+}
+Waiting for transaction 'txn:payment:SG06WP0BA9FBTHVV6V6QPWH44Z76382HKQ8N3NPAN7ZGNBM8NWP0' to finish
+Finished with status 'done'.
+retry with ietf credential -> HTTP 200
+receipt header decoded: {"status":"success","method":"taler","timestamp":"2026-10-20T13:05:02Z","reference":"2026.293-CNZGQSBYQEPPY"}
+body: {"message":"paid content","servedAt":"2026-10-20T13:05:02.034Z"}
+
+=== x402 ===  GET http://127.0.0.1:8402/api/quote
+402 received. order 2026.293-2KYJZCMZX8KY4
+  taler_pay_uri taler://pay/backend.demo.taler.net/instances/sandbox/2026.293-2KYJZCMZX8KY4/
+paying with the wallet CLI ...
+Repurchase detected (txn:payment:SG06WP0BA9FBTHVV6V6QPWH44Z76382HKQ8N3NPAN7ZGNBM8NWP0)
+Waiting for old transaction to be final.
+Transaction done.
+retry with x402 credential -> HTTP 402
+receipt header decoded: undefined
+body: {"type":"https://paymentauth.org/problems/verification-failed","title":"Payment Verification Failed","status":402,"detail":"Order is not paid yet (status: claimed)."}
+
+wallet balance after:
+KUDOS:9.9 in=KUDOS:0 out=KUDOS:0 @e:exchange.demo.taler.net

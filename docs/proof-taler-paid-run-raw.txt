@@ -1,0 +1,37 @@
+
+> arvuna@0.0.1 e2e
+> node scripts/e2e-taler-demo.ts
+
+wallet balance before:
+KUDOS:9.9 in=KUDOS:0 out=KUDOS:0 @e:exchange.demo.taler.net
+
+=== ietf ===  GET http://127.0.0.1:8402/api/quote
+402 received. order 2026.293-Z2SX6Z5QR12R2
+  taler_pay_uri taler://pay/backend.demo.taler.net/instances/sandbox/2026.293-Z2SX6Z5QR12R2/
+paying with the wallet CLI ...
+  extra: undefined,
+  minimum_age: 0,
+  default_money_pot: undefined
+}
+Waiting for transaction 'txn:payment:EX3SEMWWKBSDCMYGETS6H9HHQGZJXHFH4QB2J143ZR750WK9ZZ00' to finish
+Finished with status 'done'.
+retry with ietf credential -> HTTP 200
+receipt header decoded: {"status":"success","method":"taler","timestamp":"2026-10-20T13:06:02Z","reference":"2026.293-Z2SX6Z5QR12R2"}
+body: {"message":"paid content","servedAt":"2026-10-20T13:06:02.348Z"}
+
+=== x402 ===  GET http://127.0.0.1:8402/api/quote
+402 received. order 2026.293-CXZDGE1S3PW1M
+  taler_pay_uri taler://pay/backend.demo.taler.net/instances/sandbox/2026.293-CXZDGE1S3PW1M/
+paying with the wallet CLI ...
+  extra: undefined,
+  minimum_age: 0,
+  default_money_pot: undefined
+}
+Waiting for transaction 'txn:payment:G5DDX4706H4HQ6WY7PTQARNSKWR5QF6DB38RRHNZ0KXMGXGX3RQG' to finish
+Finished with status 'done'.
+retry with x402 credential -> HTTP 200
+receipt header decoded: {"success":true,"transaction":"2026.293-CXZDGE1S3PW1M","network":"taler:KUDOS","amount":"10"}
+body: {"message":"paid content","servedAt":"2026-10-20T13:06:05.866Z"}
+
+wallet balance after:
+KUDOS:9.7 in=KUDOS:0 out=KUDOS:0 @e:exchange.demo.taler.net

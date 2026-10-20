@@ -1,6 +1,6 @@
 # Taler method prototype: proof run, 2026-10-20
 
-**Status: the paid step has NOT been run.** Everything up to the payment runs live against the public GNU Taler demo. The payment itself needs demo KUDOS in a wallet, and getting demo KUDOS needs a (free, throwaway) account at bank.demo.taler.net. That account has to be created by a person, so this document records the blocker and the exact steps that finish the run. No result below is claimed beyond what is shown.
+**Status: the paid run was completed on 2026-10-20, for both formats, after one bug found by the first attempt was fixed.** A Taler wallet paid a real order on the public GNU Taler demo (KUDOS, demo money with no value) and the protected route then returned `HTTP 200` with a receipt, once through the IETF Payment format and once through x402 v2. The merchant backend independently reports the orders as `paid`. Sections 1 to 4 are the work before the wallet held any money; section 5 is the paid run, including the failed first attempt.
 
 ## What was run, and what it showed
 
@@ -75,7 +75,7 @@ payment-required: eyJ4NDAyVmVyc2lvbiI6Mi…
 
 The order id and pay URI come from a real order created on the demo merchant. `amount` is `10` because KUDOS has two fractional digits, so `KUDOS:0.1` is 10 base units. `arvuna-check` passes all 29 of its rules on this response (see [conformance-run-20261020.md](conformance-run-20261020.md)).
 
-### 4. The wallet CLI reads the order
+### 4. The wallet CLI reads the order (before funding)
 
 The Taler wallet CLI is used as an external program only, in a throwaway Docker container (`tools/wallet/Dockerfile`); nothing from it is vendored or linked.
 
@@ -103,33 +103,79 @@ The Taler wallet CLI is used as an external program only, in a throwaway Docker 
   error: insufficient balance for the selected choice
   ```
 
-That is the blocker. The wallet parsed the contract and the failure reason it gives is the empty balance; whether the payment then completes has not been observed.
+That was the state before the wallet was funded: the wallet parsed the contract and the only failure reason it gave was the empty balance. Section 5 is what happened once it held KUDOS.
 
-## Why the run stops here
+## 5. The paid run
 
-Demo KUDOS come from `https://bank.demo.taler.net/`, which requires registering a bank account (registration is open, `allow_registrations: true`) and confirming each withdrawal while logged in. Registering an account on a third-party service and signing in to it is a step this work does not do automatically, so it is left to the maintainer.
+### Funding the wallet
 
-## Finishing the run (about two minutes, by hand)
+On 2026-10-20 a throwaway account was registered at bank.demo.taler.net by the maintainer, who created a withdrawal to a Taler wallet and confirmed it in the bank's web page. The wallet CLI (the same Docker image as above) was given the `taler://withdraw/…` link with `scripts/taler-wallet.sh handle-uri -y --withdrawal-exchange https://exchange.demo.taler.net/ '<link>'`. Observed:
 
-1. In a browser, register a throwaway account at https://bank.demo.taler.net/ and log in. Use a password you do not use anywhere else.
-2. In the bank's web page choose to withdraw to a Taler wallet, and copy the `taler://withdraw/…` link it shows.
-3. Terminal 1: `npm run demo`
-4. Terminal 2, withdraw (confirm the withdrawal in the bank page while this runs):
+- The wallet accepted the link: operation pending, `KUDOS:10`, exchange `https://exchange.demo.taler.net/`.
+- It then stopped at the exchange's terms-of-service prompt (`-y` does not answer it when stdin is not a terminal), so the terms were accepted with `taler-wallet-cli exchanges accept-tos https://exchange.demo.taler.net/`, on the maintainer's `-y` instruction.
+- The wallet process must stay alive for the withdrawal to progress: until `taler-wallet-cli wait-tx <withdrawal>` was running, the bank reported the operation as not yet selected. After the maintainer confirmed in the bank page: `matched done after 335.8s`, and the balance read `KUDOS:10 in=KUDOS:0 out=KUDOS:0 @e:exchange.demo.taler.net`.
 
-   ```
-   scripts/taler-wallet.sh handle-uri -y --withdrawal-exchange https://exchange.demo.taler.net/ 'taler://withdraw/…'
-   scripts/taler-wallet.sh balance --pretty
-   ```
+### Attempt 1: IETF passes, x402 fails (a bug in this repository)
 
-5. Terminal 2, the paid run for both formats:
+Raw output: [proof-taler-paid-run-raw-attempt1.txt](proof-taler-paid-run-raw-attempt1.txt).
 
-   ```
-   npm run e2e 2>&1 | tee docs/proof-taler-paid-run-raw.txt
-   ```
+- IETF: 402, wallet paid order `2026.293-CNZGQSBYQEPPY`, retry returned **HTTP 200** and the receipt `{"status":"success","method":"taler","timestamp":"2026-10-20T13:05:02Z","reference":"2026.293-CNZGQSBYQEPPY"}`.
+- x402: 402 with order `2026.293-2KYJZCMZX8KY4`, but the wallet printed `Repurchase detected (txn:payment:SG06WP0B…)` and did not pay. The retry returned **HTTP 402**, `Order is not paid yet (status: claimed)`. The wallet balance fell by only 0.1 (to 9.9).
+- Cause: the paywall gave every order the same `fulfillment_url` (the resource URL). The Taler wallet treats an order whose `fulfillment_url` matches one it already paid as the same purchase and will not pay it again, so a second purchase of the same resource could never be paid. The paywall was correct to refuse the unpaid order; the defect was in how it created orders.
+- Fix: each order now gets a unique `fulfillment_url` (the resource URL plus an `arvuna_order=<uuid>` query parameter). The resource named in the 402 and checked on redemption is unchanged. A failing test was written first (`each order gets its own fulfillment_url…`, it failed before the change) and the suite then passed: 45 of 45.
 
-   Expected: for each format a 402, a payment through the wallet, a retry that returns `HTTP 200`, and a decoded receipt (`Payment-Receipt` for the IETF format, `PAYMENT-RESPONSE` for x402). The second order is a fresh one, so the first receipt does not satisfy it.
+### Attempt 2, after the fix: both formats pass
 
-Until that has been run and its output pasted here, treat the paid flow as **not demonstrated end to end**. What is demonstrated: both 402 formats against a real merchant order (section 3), the paid-order verification and receipts against a faithful offline stand-in for the merchant (`src/taler/paywall.test.ts`, 16 tests), and the wallet recognising the order (section 4).
+Raw output: [proof-taler-paid-run-raw.txt](proof-taler-paid-run-raw.txt). Both are second or later purchases of the same resource, the case that failed above.
+
+```
+wallet balance before:
+KUDOS:9.9 in=KUDOS:0 out=KUDOS:0 @e:exchange.demo.taler.net
+
+=== ietf ===  GET http://127.0.0.1:8402/api/quote
+402 received. order 2026.293-Z2SX6Z5QR12R2
+  taler_pay_uri taler://pay/backend.demo.taler.net/instances/sandbox/2026.293-Z2SX6Z5QR12R2/
+paying with the wallet CLI ...
+Waiting for transaction 'txn:payment:EX3SEMWWKBSDCMYGETS6H9HHQGZJXHFH4QB2J143ZR750WK9ZZ00' to finish
+Finished with status 'done'.
+retry with ietf credential -> HTTP 200
+receipt header decoded: {"status":"success","method":"taler","timestamp":"2026-10-20T13:06:02Z","reference":"2026.293-Z2SX6Z5QR12R2"}
+body: {"message":"paid content","servedAt":"2026-10-20T13:06:02.348Z"}
+
+=== x402 ===  GET http://127.0.0.1:8402/api/quote
+402 received. order 2026.293-CXZDGE1S3PW1M
+  taler_pay_uri taler://pay/backend.demo.taler.net/instances/sandbox/2026.293-CXZDGE1S3PW1M/
+paying with the wallet CLI ...
+Waiting for transaction 'txn:payment:G5DDX4706H4HQ6WY7PTQARNSKWR5QF6DB38RRHNZ0KXMGXGX3RQG' to finish
+Finished with status 'done'.
+retry with x402 credential -> HTTP 200
+receipt header decoded: {"success":true,"transaction":"2026.293-CXZDGE1S3PW1M","network":"taler:KUDOS","amount":"10"}
+body: {"message":"paid content","servedAt":"2026-10-20T13:06:05.866Z"}
+
+wallet balance after:
+KUDOS:9.7 in=KUDOS:0 out=KUDOS:0 @e:exchange.demo.taler.net
+```
+
+(The raw file also contains the wallet's contract printout, which is omitted above.)
+
+### Checked at the merchant, not only on our server
+
+`GET /instances/sandbox/private/orders/{id}` on `backend.demo.taler.net`, after the runs:
+
+| Order | Run | Merchant `order_status` |
+|---|---|---|
+| `2026.293-CNZGQSBYQEPPY` | attempt 1, IETF | `paid`, `KUDOS:0.1` |
+| `2026.293-2KYJZCMZX8KY4` | attempt 1, x402 (wallet refused as repurchase) | `claimed`, never paid |
+| `2026.293-Z2SX6Z5QR12R2` | attempt 2, IETF | `paid`, `KUDOS:0.1` |
+| `2026.293-CXZDGE1S3PW1M` | attempt 2, x402 | `paid`, `KUDOS:0.1` |
+
+Wallet balance: 10 → 9.9 → 9.7, that is three payments of 0.1, matching the three paid orders.
+
+### What this shows, and what it does not
+
+Shown: a real Taler wallet paid a real merchant order that this prototype created, and the prototype verified the payment with the merchant and served the resource with a receipt, in both the IETF Payment format and the x402 v2 format. The unpaid order was refused.
+
+Not shown: the paid run was done by one wallet, one resource and one merchant instance, on a demo exchange, with the paywall and the wallet on the same machine; the replay and tamper cases are covered by the offline tests, not re-run live; no Taler production exchange or real currency was involved; deposits to the merchant's bank account (`deposit_total` read `KUDOS:0` at the time of the check) were not examined.
 
 ## Limits of this prototype's Taler verification
 

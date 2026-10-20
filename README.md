@@ -8,14 +8,15 @@ Open payment methods for HTTP 402 on public payment rails.
 
 **Prototype** (2026-10-20). It shows that the idea is feasible. It is not the finished project: the production work is listed as milestones in [docs/ROADMAP.md](docs/ROADMAP.md), and none of that has been started.
 
-What runs, each part with tests that were executed (`npm test`: 44 tests, all passing):
+What runs, each part with tests that were executed (`npm test`: 45 tests, all passing):
 
 - **A Taler adapter** (`src/taler/`). One protected route answers `402` in both formats at once, built from a real order on a GNU Taler merchant backend: the IETF `WWW-Authenticate: Payment` challenge and the x402 v2 `PAYMENT-REQUIRED` header. It accepts a retry in either format, asks the merchant whether the order is paid, and returns a receipt. It talks to Taler over HTTP only.
 - **A conformance checker** (`src/conformance/`). `arvuna-check URL` makes one request, expects `402`, and checks what it finds against the two specifications, one rule at a time with the section cited. It never pays and never sends a credential. Results of a run against six public endpoints, including two findings, are in [docs/conformance-run-20261020.md](docs/conformance-run-20261020.md).
 
+A paid run on the public Taler demo has been done: a Taler wallet paid a real demo order and the route returned `200` with a receipt, once in each format. The transcript, a bug it exposed and how it was fixed, and what it does not show, are in [docs/proof-taler-demo-20261020.md](docs/proof-taler-demo-20261020.md). It used demo money (KUDOS) only.
+
 What does not run yet:
 
-- **The paid run against the Taler demo has not been completed.** Everything up to the payment works against the live demo; the payment needs demo money from a demo bank account that has to be created by a person. What was shown, and the steps to finish, are in [docs/proof-taler-demo-20261020.md](docs/proof-taler-demo-20261020.md).
 - No SEPA Instant method, no settlement watcher, no packaging, no pilot.
 
 Try it (Node 24 or later):
