@@ -96,7 +96,7 @@ Both are designed to carry any payment method. So far every published method is 
 
 ## What arvuna adds
 
-1. **`taler` method.** A method specification for the IETF Payment registry and a matching x402 scheme for GNU Taler. A reference adapter maps the Taler merchant backend's existing 402 response (`taler_pay_uri`) to both formats, and maps payment status back into a receipt. The adapter talks to the merchant backend only over its HTTP API.
+1. **`taler` method.** A method specification for the IETF Payment registry and a matching x402 scheme for GNU Taler. A reference adapter maps the Taler merchant backend's existing 402 response (`taler_pay_uri`) to both formats, and maps payment status back into a receipt. The adapter talks to the merchant backend only over its HTTP API. The method specification is drafted in [docs/specs/draft-taler-charge-00.md](docs/specs/draft-taler-charge-00.md), with open questions marked for review.
 2. **`rtp` method.** A request-to-pay method for bank instant payments: SEPA Instant through the EPC QR code standard, plus national instant rails. The recipient is a `payto:` URI (RFC 8905).
 3. **Settlement watcher.** EU law requires the receiving bank to credit an instant transfer within ten seconds, but it does not require the bank to tell the payee. arvuna defines one watcher interface in the shape of the Taler Bank Revenue API, with these backends in order of preference:
    - LibEuFin Nexus over EBICS;
