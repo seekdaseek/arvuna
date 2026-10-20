@@ -2,8 +2,6 @@
 
 Open payment methods for HTTP 402 on public payment rails.
 
-*arvună* is Romanian for earnest money, the sum you pay upfront to seal a deal. It is what a server asks for when it answers `402 Payment Required`.
-
 ## Status
 
 **Prototype** (2026-10-20). It shows that the idea is feasible. It is not the finished project: the production work is listed as milestones in [docs/ROADMAP.md](docs/ROADMAP.md), and none of that has been started.
@@ -65,4 +63,4 @@ To be confirmed. All code and specifications will be released under a recognised
 
 ## Contact
 
-Serghei Ochinca, Chisinau. Issues and pull requests are welcome here.
+seekdaseek. Issues and pull requests are welcome here.
