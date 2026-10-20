@@ -214,3 +214,13 @@ for (const format of ["ietf", "x402"] as const) {
     assert.equal(r.receipt, undefined);
   });
 }
+
+test("each order gets its own fulfillment_url, so a wallet's repurchase detection cannot treat a second purchase as already paid", async () => {
+  const a = await challenge("/api/quote");
+  const b = await challenge("/api/quote");
+  const fa = fm.orders.get(a.orderId)!.fulfillment_url;
+  const fb = fm.orders.get(b.orderId)!.fulfillment_url;
+  assert.notEqual(fa, fb);
+  assert.ok(fa.startsWith(base + "/api/quote?") && fb.startsWith(base + "/api/quote?"));
+  assert.equal(a.x.resource.url, base + "/api/quote", "the resource named in the 402 stays the plain URL");
+});

@@ -4,6 +4,7 @@
 //   - x402 v2 (x402-specification-v2.md, transports-v2/http.md): PAYMENT-REQUIRED / PAYMENT-SIGNATURE / PAYMENT-RESPONSE
 // The paywall never touches money. It asks the merchant backend for an order and later asks whether that order is paid.
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
 import { b64Decode, b64Encode, b64urlDecode, b64urlEncode, isObject, jcs, parseJson, utf8 } from "../common/encoding.ts";
 import { challengeId, formatPaymentChallenge, safeEqual } from "../common/challenge.ts";
 import { parseAmount, sameAmount, toBaseUnits } from "./amount.ts";
@@ -222,7 +223,11 @@ export class Paywall {
     for (const [id, r] of this.issued) if (r.expiresMs < nowMs - 3_600_000) this.issued.delete(id);
     const summary = this.o.describe?.(resource) ?? `Access to ${resource}`;
     const deadlineS = Math.floor(nowMs / 1000) + (this.o.payWindowS ?? 600);
-    const created = await this.o.merchant.createOrder({ amount: this.o.price, summary, fulfillmentUrl: resource, payDeadlineS: deadlineS });
+    // A Taler wallet treats an order whose fulfillment_url equals that of an order it already paid as a
+    // repurchase and does not pay again. Every order therefore gets its own fulfillment_url.
+        const fulfill = new URL(resource);
+        fulfill.searchParams.set("arvuna_order", randomUUID());
+        const created = await this.o.merchant.createOrder({ amount: this.o.price, summary, fulfillmentUrl: fulfill.toString(), payDeadlineS: deadlineS });
     const pub = await this.o.merchant.publicOrder(created.orderId);
     if (pub.httpStatus !== 402 || !pub.talerPayUri) throw new MerchantError("merchant did not return a taler_pay_uri", pub.httpStatus, pub);
     const rec: Issued = {

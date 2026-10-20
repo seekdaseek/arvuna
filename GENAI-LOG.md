@@ -53,4 +53,18 @@ Anthropic Claude, used through the Claude app, configured as `claude-opus-5-5`. 
 - **Review and testing:** every output quoted in the documents was produced by a command run during the session. Counts in the documents (44 tests, 6 targets) were checked against the actual test and run output. The maintainer has not yet reviewed these documents; this entry will be updated when that review is done.
 - **Prompts and outputs:** summary only. Continuation of the same brief.
 
+### 2026-10-20: unique fulfillment URL per order (fix found by the paid run)
+- **Model:** `claude-sonnet-5-5`, as reported by Claude Code at the time.
+- **Used for:** diagnosing why the second paid attempt in the live run was refused by the Taler wallet (`Repurchase detected`), a failing test that reproduces the cause, and the fix in `src/taler/paywall.ts` (each order's `fulfillment_url` now carries a unique query parameter).
+- **Human part:** the maintainer created the demo bank account, made the withdrawal and confirmed it in the bank's web page, and instructed the terms-of-service acceptance; the model ran the wallet and the end-to-end script.
+- **Review and testing:** the test was written first and failed before the change; afterwards `npm test` passed 45 of 45 and the live run was repeated: both formats paid and returned `200` with a receipt, and the merchant backend reports those orders as paid. The maintainer has not yet read the change line by line; this entry will be updated when that review is done.
+- **Prompts and outputs:** summary only. Instruction to finish the paid run per the proof document; the model returned the fix, the test and the transcript.
+
+### 2026-10-20: proof document rewritten from the paid run
+- **Model:** `claude-sonnet-5-5`, as reported by Claude Code at the time.
+- **Used for:** rewriting `docs/proof-taler-demo-20261020.md` around the real transcripts (both attempts, the bug, the merchant-side check), and updating the status lines in `README.md`, `docs/ROADMAP.md` and `docs/conformance-run-20261020.md`.
+- **Human part:** none of the facts were supplied by the model from memory: every quoted line comes from the raw transcript files `docs/proof-taler-paid-run-raw*.txt` or from the merchant backend queries shown. The maintainer reviews the wording before relying on it.
+- **Review and testing:** the raw transcripts were scanned for personal data and secrets before publication (none found). Stale statements ("not run", test counts) were located with a search and corrected.
+- **Prompts and outputs:** summary only.
+
 New entries are added here whenever generated content goes into a commit, with the model, how it was used and a summary of the prompts and outputs.
