@@ -1,0 +1,19 @@
+{
+  "name": "arvuna",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Open payment methods for HTTP 402 on public payment rails. Prototype.",
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "bin": { "arvuna-check": "src/conformance/cli.ts" },
+  "scripts": {
+    "test": "node --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc -p .",
+    "check": "node src/conformance/cli.ts",
+    "demo": "node src/taler/demo-server.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}

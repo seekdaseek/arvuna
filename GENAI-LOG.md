@@ -18,4 +18,11 @@ Anthropic Claude, used through the Claude app, configured as `claude-opus-5-5`. 
   - the maintainer reviewed and edited the README before committing it.
 - **Prompts and outputs:** summary only. The research covered the IETF draft-httpauth-payment-01 method registry, x402 v2 scheme rules, the Taler merchant 402 response and paivana, LibEuFin's Bank Revenue API, the EU Instant Payments Regulation and the EPC QR standard. No code was generated.
 
+### 2026-10-20: prototype scaffold and shared encoding code
+- **Model:** `claude-sonnet-5-5`, as reported by Claude Code at the time.
+- **Used for:** the TypeScript project scaffold (`package.json`, `tsconfig.json`), `src/common/` (base64 and base64url helpers, JSON Canonicalization, a `WWW-Authenticate` parser, the HMAC challenge binding) and its unit tests, plus fixtures copied from the two specifications, and `tools/wallet/Dockerfile` (a throwaway container that installs the GNU Taler wallet CLI as an external dev tool).
+- **Human part:** the maintainer wrote the brief, which fixed the language, the licensing constraints and the scope.
+- **Review and testing:** the code was written against the spec text (draft-httpauth-payment-01 and x402 v2), which the model fetched and read during the session. The three HMAC test vectors published in the draft pass, which is an independent check on the challenge binding. `npm test` and `tsc` ran with the output observed. The maintainer has not yet read the code line by line; this entry will be updated when that review is done.
+- **Prompts and outputs:** summary only. One brief asking for a Taler method prototype and a conformance checker; the model returned the files listed above.
+
 New entries are added here whenever generated content goes into a commit, with the model, how it was used and a summary of the prompts and outputs.
