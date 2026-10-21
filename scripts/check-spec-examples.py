@@ -9,7 +9,11 @@ Checks, for each file given:
        Payment-Receipt: <base64url>
        PAYMENT-REQUIRED / PAYMENT-SIGNATURE / PAYMENT-RESPONSE: <base64>   (x402, standard base64)
      and its encoding must be the JCS serialisation (--lenient-jcs turns that off, for specs that do not use JCS here);
-  3. the request echoed inside every credential must be one of the shown requests.
+  3. the request echoed inside every credential must be one of the shown requests;
+  4. for the Taler method specification: every shown JSON that contains a Taler Pay URI must agree with it,
+     using the rule of LSD 0006 (order id = path segment between the last two slashes after dropping the
+     query; merchant base URL = https:// + host + prefix path + "/"):
+       methodDetails.orderId and methodDetails.merchantBaseUrl, x402 payTo, and PAYMENT-RESPONSE transaction.
 
 usage: check-spec-examples.py [--lenient-jcs] FILE...      exit status 1 if there is any mismatch"""
 import base64, json, re, sys
@@ -76,6 +80,52 @@ for path in args:
         n += 1
         if inner not in shown_enc:
             mismatch(m.start(), f"credential embeds a request that decodes to {dec_url(inner)}")
+
+    # 4. Taler Pay URI derivation (only fires for specs that show taler://pay/ URIs in their JSON)
+    def derive(uri):
+        rest = uri.split("?", 1)[0]
+        assert rest.startswith("taler://pay/"), uri
+        segs = rest[len("taler://pay/"):].split("/")
+        return segs[-2], "https://" + "/".join(segs[:-2]) + "/"
+
+    uris_checked = 0
+    derived_orders = set()
+    for m in re.finditer(r"~~~json\n(.*?)\n~~~", text, re.S):
+        try:
+            obj = json.loads(m.group(1))
+        except Exception:
+            continue
+        def walk(o):
+            if isinstance(o, dict):
+                yield o
+                for v in o.values():
+                    yield from walk(v)
+            elif isinstance(o, list):
+                for v in o:
+                    yield from walk(v)
+        for d in walk(obj):
+            md = d.get("methodDetails") if isinstance(d.get("methodDetails"), dict) else None
+            if md and isinstance(md.get("talerPayUri"), str):
+                oid, base = derive(md["talerPayUri"]); uris_checked += 1; derived_orders.add(oid)
+                if md.get("orderId") != oid:
+                    mismatch(m.start(), f"methodDetails.orderId {md.get('orderId')!r} != order id {oid!r} derived from the Taler Pay URI")
+                if md.get("merchantBaseUrl") != base:
+                    mismatch(m.start(), f"methodDetails.merchantBaseUrl {md.get('merchantBaseUrl')!r} != {base!r} derived from the Taler Pay URI")
+            ex = d.get("extra") if isinstance(d.get("extra"), dict) else None
+            if ex and isinstance(ex.get("talerPayUri"), str):
+                oid, base = derive(ex["talerPayUri"]); uris_checked += 1; derived_orders.add(oid)
+                if d.get("payTo") != base:
+                    mismatch(m.start(), f"payTo {d.get('payTo')!r} != {base!r} derived from the Taler Pay URI")
+    for m in re.finditer(r"~~~json\n(.*?)\n~~~", text, re.S):
+        try:
+            obj = json.loads(m.group(1))
+        except Exception:
+            continue
+        if isinstance(obj, dict) and "transaction" in obj and "success" in obj and derived_orders:
+            if obj["transaction"] not in derived_orders:
+                mismatch(m.start(), f"transaction {obj['transaction']!r} is not an order id derived from a shown Taler Pay URI")
+    if uris_checked:
+        print(f"{path}: {uris_checked} Taler Pay URI(s) checked against the LSD 0006 derivation rule")
 
     print(f"{path}: {len(shown)} shown request(s), {n} encoded values checked, mismatches: {bad}")
     total_bad += bad
