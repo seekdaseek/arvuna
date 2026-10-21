@@ -340,4 +340,189 @@ Not shown, and still missing against the draft:
 - Orders are still created on every unauthenticated request, with no rate limit, no reuse of an open order and no removal of expired unpaid orders.
 - The consumption key is not prefixed with the merchant base URL, which the draft suggests for a store shared by several merchant instances; this store serves one.
 - The store is a single SQLite file for one process.
-- The merchant payment signature (draft question OQ-11) is not used; the proof check relies on the public order status.
+- The merchant payment signature (draft question OQ-11) is not used; the proof check relies on the public order status. (Superseded: the prototype now verifies an optional `merchantSig`; see "Paid run against -03".)
+
+## Paid run against -03
+
+The prototype was brought in line with [draft-taler-charge-03](specs/draft-taler-charge-03.md), and the paid run was repeated against the public Taler demo (`backend.demo.taler.net`) with the demo wallet: once in the IETF Payment format, once in x402, and a third time in x402 with the payload carrying `merchantSig`. After each payment the same credential was presented again, and then the credential of the other format for the same order. Demo money only (KUDOS on the public demo); no real exchange and no real money were involved. The sections above, including "Paid run against -02", are the record of the earlier runs and are kept unchanged.
+
+### What changed in the code
+
+| Change in -03 | What the code does now | Tested by |
+|---|---|---|
+| Unit (OQ-1 closed) | `amount` is always in units of 10^-8; `exchange.ts` no longer reads `currency_specification` and the unit is not looked up anywhere. KUDOS:0.1 is "10000000" | "the unit is always 10^-8 and no exchange or /config currency specification is consulted": the stand-in exchange publishes 0, 2, 3 or no digits and `/config` carries a decoy of 3; the amount does not move |
+| `talerAmount`, both sides | `methodDetails.talerAmount` and `extra.talerAmount`, the price string as configured ("KUDOS:0.1"); the order is created with that same string; the amount grammar is the Taler documentation's (ASCII letters only, at most 11, integer part at most 2^52, at most 8 fraction digits) | "402 carries both formats"; "amountMismatch compares exact decimals and currencies" |
+| Client check | the reference client compares `amount` with `talerAmount` as integers (no floating point) and the currency without regard to case, and throws before the wallet is asked to pay if they differ or `talerAmount` is missing | "the client refuses to pay when amount and talerAmount differ, in either format": a server that rewrites the 402; the pay function is never called |
+| `merchantSig` (OQ-11 narrowed) | optional payload field; when present it is verified (Ed25519 over `size 72, purpose 1104, h_contract_terms`) against `merchant_pub` of the order's contract terms, else `invalid_exact_taler_merchant_sig`; absent, the -02 path. **The public status read is not skipped**, see below | "a real merchant signature verifies": a vector from a real payment (`src/taler/testdata`), not a key made for the test; "absent means the -02 path; present does not replace the public status read" |
+| One order, both formats | already the behaviour: one per-order redeemed flag; keys `ietf:orderId` and `network:orderId`. Now the client also builds the other format's credential from the same 402, so a script can present it | "after ietf (x402) is accepted, the other format's credential for the same order is refused"; live, below |
+| Failed settle status | 402 with a fresh challenge and a problem type (IETF), 402 with `PAYMENT-RESPONSE` (x402), 500 when the merchant backend cannot be asked: as before. **One difference found and fixed:** an x402 `PAYMENT-SIGNATURE` that is not a `PaymentPayload` (not base64 JSON, wrong `x402Version`, no `accepted` or `payload`) was answered 402; the x402 HTTP transport maps "Invalid Payment" to 400, so it now is 400, with no `PAYMENT-RESPONSE` | "tampering, another resource, malformed credentials and other schemes are all refused" |
+| OQ-10 (network string, domain) | no code change: the prototype's client shows nothing to a user | not applicable |
+
+Why `merchantSig` does not let the paywall skip the public status read: the signed structure holds the contract hash and nothing else. A valid signature shows the merchant confirmed payment of some contract with that hash, not that it is this order. The test presents a real signature, valid for another contract of the same merchant, under a fresh order: the signature verifies, and the public read still answers 403 for the hash, so the paywall refuses it (`invalid_exact_taler_h_contract_mismatch`). Skipping the read would have accepted it. The draft says so (section "Merchant Payment Signature") and allows the skip only for a server that knows the contract hash of its own order.
+
+Tests: 61 before, 70 now (11 common, 17 checker, 3 pay URI, 3 store, 2 exchange, 5 merchant signature, 29 paywall and client), all passing, and `tsc` is clean. Eight deliberate breaks of the code were each run against the suite on a scratch copy (skip the signature check, use the cent as the unit, drop the client's amount check on the x402 side, ignore the per-order redeemed flag, wrong purpose constant, answer 402 instead of 400 for an invalid payload, leave `talerAmount` out of `extra`, allow digits in a currency code). Seven were caught by tests that already existed; the eighth was not caught, so tests for the currency grammar and the 2^52 limit were added, and the break is caught now.
+
+### The 402 the prototype now sends
+
+From the demo server running against the demo backend (the claim token is masked; the order was not paid):
+
+```json
+{
+  "amount": "10000000",
+  "currency": "kudos",
+  "description": "arvuna demo: /api/quote",
+  "externalId": "2026.294-X77BM075BSQY6",
+  "methodDetails": {
+    "exchanges": [{ "masterPub": "F80MFRG8HVH6R9CQ47KRFQSJP3T6DBJ4K1D9B703RJY3Z39TBMJ0", "url": "https://exchange.demo.taler.net/" }],
+    "merchantBaseUrl": "https://backend.demo.taler.net/instances/sandbox/",
+    "orderId": "2026.294-X77BM075BSQY6",
+    "talerAmount": "KUDOS:0.1",
+    "talerPayUri": "taler://pay/backend.demo.taler.net/instances/sandbox/2026.294-X77BM075BSQY6/?c=<claim token>"
+  }
+}
+```
+
+and the decoded `PAYMENT-REQUIRED`:
+
+```json
+{
+  "accepts": [{
+    "amount": "10000000",
+    "asset": "KUDOS",
+    "extra": {
+      "paymentFlow": "upfront",
+      "talerAmount": "KUDOS:0.1",
+      "talerPayUri": "taler://pay/backend.demo.taler.net/instances/sandbox/2026.294-X77BM075BSQY6/?c=<claim token>"
+    },
+    "maxTimeoutSeconds": 598,
+    "network": "taler:F80MFRG8HVH6R9CQ47KRFQSJP3T6DBJ4",
+    "payTo": "https://backend.demo.taler.net/instances/sandbox/",
+    "scheme": "exact"
+  }],
+  "error": "PAYMENT-SIGNATURE header is required",
+  "resource": { "description": "arvuna demo: /api/quote", "mimeType": "application/json", "url": "http://127.0.0.1:8402/api/quote" },
+  "x402Version": 2
+}
+```
+
+### The run
+
+`node scripts/e2e-taler-demo.ts both` against a fresh store. Raw output of both runs: [proof-taler-paid-run-03-raw.txt](proof-taler-paid-run-03-raw.txt).
+
+```
+wallet balance before:
+KUDOS:9.5 in=KUDOS:0 out=KUDOS:0 @e:exchange.demo.taler.net
+
+=== ietf ===  GET http://127.0.0.1:8402/api/quote
+402 received. order 2026.294-7EDEZ0TSCCCJC
+  amount 10000000 (units of 10^-8) = KUDOS:0.1
+  exchanges listed: https://exchange.demo.taler.net/
+  taler_pay_uri taler://pay/backend.demo.taler.net/instances/sandbox/2026.294-7EDEZ0TSCCCJC/?c=<claim token>
+paying with the wallet CLI ...
+}
+Waiting for transaction 'txn:payment:J3TH3MWXKDETM1P6SQ1VPJD2PZ2BQWSDYVVHV8SA9PE7MKTJJD4G' to finish
+Finished with status 'done'.
+retry with ietf credential -> HTTP 200
+receipt header decoded: {"status":"success","method":"taler","timestamp":"2026-10-21T10:44:43Z","reference":"2026.294-7EDEZ0TSCCCJC"}
+body: {"message":"paid content","servedAt":"2026-10-21T10:44:49.537Z"}
+merchant order_status for 2026.294-7EDEZ0TSCCCJC: paid
+REPLAY of the same ietf credential -> HTTP 402 https://paymentauth.org/problems/invalid-challenge
+CROSS-FORMAT replay of the same order as payment-signature -> HTTP 402 duplicate_settlement
+order id: 2026.294-7EDEZ0TSCCCJC
+
+=== x402 ===  GET http://127.0.0.1:8402/api/quote
+402 received. order 2026.294-8S2AWKHYXHP7W
+  amount 10000000 (units of 10^-8) = KUDOS:0.1
+  exchanges listed: (none)
+  taler_pay_uri taler://pay/backend.demo.taler.net/instances/sandbox/2026.294-8S2AWKHYXHP7W/?c=<claim token>
+paying with the wallet CLI ...
+}
+Waiting for transaction 'txn:payment:GJH6QP87J65JBRKZZPYRN9Q713BX97094J8JZPFJ0DRR3EH05VV0' to finish
+Finished with status 'done'.
+retry with x402 credential -> HTTP 200
+receipt header decoded: {"amount":"10000000","network":"taler:F80MFRG8HVH6R9CQ47KRFQSJP3T6DBJ4","success":true,"transaction":"2026.294-8S2AWKHYXHP7W"}
+body: {"message":"paid content","servedAt":"2026-10-21T10:45:24.860Z"}
+merchant order_status for 2026.294-8S2AWKHYXHP7W: paid
+REPLAY of the same x402 credential -> HTTP 402 duplicate_settlement
+CROSS-FORMAT replay of the same order as authorization -> HTTP 402 https://paymentauth.org/problems/invalid-challenge
+order id: 2026.294-8S2AWKHYXHP7W
+
+wallet balance after:
+KUDOS:9.3 in=KUDOS:0 out=KUDOS:0 @e:exchange.demo.taler.net
+exit status: 0
+```
+
+(The single `}` lines are the end of the wallet's own printout of the contract, which the script shortens to its last lines.)
+
+Then an x402 run whose payload also carries `merchantSig` (`node scripts/e2e-taler-demo.ts x402sig`). wallet-core does not return the signature to the application (draft OQ-11), so the script reads it from the wallet's own database, `purchases.merchant_pay_sig`. That is not an interface of the wallet and is used here only to exercise the path with a live signature:
+
+```
+# node scripts/e2e-taler-demo.ts x402sig (x402 with merchantSig read from the wallet database; not an interface)
+wallet balance before:
+KUDOS:9.3 in=KUDOS:0 out=KUDOS:0 @e:exchange.demo.taler.net
+
+=== x402 ===  GET http://127.0.0.1:8402/api/quote
+402 received. order 2026.294-1ZY7XMCSD69W8
+  amount 10000000 (units of 10^-8) = KUDOS:0.1
+  exchanges listed: (none)
+  taler_pay_uri taler://pay/backend.demo.taler.net/instances/sandbox/2026.294-1ZY7XMCSD69W8/?c=<claim token>
+paying with the wallet CLI ...
+}
+Waiting for transaction 'txn:payment:R0VZ6FJNYX2YGPYQ11J6FJ5NAEVSKBFV632N03Y0GYT0ARYC0ZPG' to finish
+Finished with status 'done'.
+merchantSig taken from the wallet database: 103 characters
+retry with x402 credential (payload with merchantSig) -> HTTP 200
+payload sent: {"orderId":"2026.294-1ZY7XMCSD69W8","hContract":"44626DCZSM5GPJNT44Q6618F9NXHJNHPVHQG5Z0A05KN8V9RVA2D4YWAHE2H2GFQ09TH64C13XRBQ7S7BPVB6CBQX9BYVPJRNHSKPB8","merchantSig":"<103 characters>"}
+receipt header decoded: {"amount":"10000000","network":"taler:F80MFRG8HVH6R9CQ47KRFQSJP3T6DBJ4","success":true,"transaction":"2026.294-1ZY7XMCSD69W8"}
+body: {"message":"paid content","servedAt":"2026-10-21T10:46:00.954Z"}
+merchant order_status for 2026.294-1ZY7XMCSD69W8: paid
+REPLAY of the same x402 credential -> HTTP 402 duplicate_settlement
+CROSS-FORMAT replay of the same order as authorization -> HTTP 402 https://paymentauth.org/problems/invalid-challenge
+order id: 2026.294-1ZY7XMCSD69W8
+
+wallet balance after:
+KUDOS:9.2 in=KUDOS:0 out=KUDOS:0 @e:exchange.demo.taler.net
+exit status: 0
+```
+
+| | IETF Payment | x402 | x402 with `merchantSig` |
+|---|---|---|---|
+| Order | `2026.294-7EDEZ0TSCCCJC` | `2026.294-8S2AWKHYXHP7W` | `2026.294-1ZY7XMCSD69W8` |
+| Amount in the 402 | "10000000" and `KUDOS:0.1` | the same | the same |
+| Wallet paid, then the retry returned | HTTP 200 and `Payment-Receipt` | HTTP 200 and `PAYMENT-RESPONSE` | HTTP 200 and `PAYMENT-RESPONSE` |
+| Merchant `order_status`, read by the script | `paid` | `paid` | `paid` |
+| The same credential presented again | HTTP 402, `invalid-challenge` | HTTP 402, `duplicate_settlement` | HTTP 402, `duplicate_settlement` |
+| The other format's credential for the same order | HTTP 402, `duplicate_settlement` | HTTP 402, `invalid-challenge` | HTTP 402, `invalid-challenge` |
+
+The wallet balance went from 9.5 to 9.2, three payments of 0.1. The third run shows the live merchant signature accepted by the paywall, which took `merchant_pub` from the contract terms at the merchant; it does not show a rejection of a live bad signature, which the tests cover with the real vector.
+
+### Checked at the merchant afterwards
+
+Asked directly with the `order-simple` login token (`GET /instances/sandbox/private/orders/{id}`), not through the prototype:
+
+| | IETF order | x402 order | x402 order with `merchantSig` |
+|---|---|---|---|
+| `order_status` | `paid` | `paid` | `paid` |
+| `contract_terms.amount` | `KUDOS:0.1` | `KUDOS:0.1` | `KUDOS:0.1` |
+| `contract_terms.fulfillment_url` | `http://127.0.0.1:8402/api/quote?order=2026.294-7EDEZ0TSCCCJC` | `...?order=2026.294-8S2AWKHYXHP7W` | `...?order=2026.294-1ZY7XMCSD69W8` |
+| `refund_deadline` minus `pay_deadline` | 3600 s | 3600 s | 3600 s |
+| `contract_terms.exchanges` | the demo exchange | the same | the same |
+| `merchant_pub` | `74DV5N6T2ANY1DJFMD41BN7KJYXK70S18CM22TQABEYMA2GSDRD0` | the same | the same |
+
+### The conformance checker on this 402
+
+`node src/conformance/cli.ts http://127.0.0.1:8402/api/quote` was run again against the server of this run and reported 29 pass, 0 fail, 0 warn. The report in [conformance/arvuna-taler-prototype.md](conformance/arvuna-taler-prototype.md) is the one of the earlier run and is not regenerated. The checker is generic and does not know the draft's own fields.
+
+### What this shows, and what it does not
+
+Shown: with the prototype following draft -03, a real Taler wallet paid a real demo order in each format; the amount was in units of 10^-8 beside the Taler amount, and the client checked the two before paying; the paywall verified each payment with the merchant backend and refused a second presentation of each credential, also in the other format. A real merchant payment signature verified in the tests and in the third live run.
+
+Gaps against -03 and limits, in addition to those of the earlier sections:
+
+- `merchantSig` is verified but never used to skip the public status read, because the paywall has no way to know the contract hash of its own order (draft OQ-14): the documentation of the private order status lists none, and computing it is not implemented. The wallet's interface does not return the signature (draft OQ-11), so the live run read it from the wallet database.
+- The x402 requirement carries the exchange only as `network`; the prototype's client shows nothing to a user, so "show the domain, never the network string" (draft OQ-10, OQ-13) is not exercised.
+- The `talerAmount` grammar is checked in the client and the amount is the price string as configured; the server does not normalize it ("KUDOS:0.10" stays as written).
+- The negative case of a live bad `merchantSig`, and of a `talerAmount` that disagrees with `amount` against the real backend, are tested offline only.
+- Several exchanges are tested against the offline stand-in only; the demo has one exchange for KUDOS.
+- The restart case is tested with a file-backed store, not in this live run.
+- There is still no separate facilitator, no per-product fulfillment URL, no `fulfillment_message` order, no refund granting, no rate limit on order creation, and a single-file store for one process.

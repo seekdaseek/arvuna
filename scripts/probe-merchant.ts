@@ -6,8 +6,8 @@ import { parsePayUri } from "../src/taler/payuri.ts";
 
 const m = new MerchantClient({ baseUrl: "https://backend.demo.taler.net", instance: "sandbox", auth: { kind: "password", password: "sandbox" } });
 const info = await discoverExchanges(m, "KUDOS");
-console.log("exchanges for KUDOS:", JSON.stringify(info.exchanges), "| published:", JSON.stringify(info.published));
-console.log(`unit 10^-${info.digits}:`, toBaseUnits(parseAmount("KUDOS:0.1"), info.digits), "base units for KUDOS:0.1");
+console.log("exchanges for KUDOS:", JSON.stringify(info.exchanges));
+console.log("base units (10^-8) for KUDOS:0.1:", toBaseUnits(parseAmount("KUDOS:0.1")));
 const now = Math.floor(Date.now() / 1000);
 const o = await m.createOrder({ amount: "KUDOS:0.1", summary: "arvuna live probe", fulfillmentUrl: "https://example.org/f?order=${ORDER_ID}", payDeadlineS: now + 600, refundDeadlineS: now + 4200 });
 console.log("created:", o);

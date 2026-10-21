@@ -1,4 +1,4 @@
-// A 402 paywall backed by a GNU Taler merchant backend, following docs/specs/draft-taler-charge-02.md.
+// A 402 paywall backed by a GNU Taler merchant backend, following docs/specs/draft-taler-charge-03.md.
 // One protected resource answers 402 in BOTH formats at once and accepts a retry in EITHER:
 //   - IETF Payment scheme: WWW-Authenticate: Payment ... method="taler" intent="charge"
 //   - x402 v2, "exact" in the client-submitted family, payment flow "upfront": PAYMENT-REQUIRED /
@@ -10,6 +10,7 @@ import { b64Decode, b64Encode, b64urlDecode, b64urlEncode, isObject, jcs, parseJ
 import { challengeId, formatPaymentChallenge, safeEqual } from "../common/challenge.ts";
 import { parseAmount, sameAmount, toBaseUnits } from "./amount.ts";
 import { discoverExchanges, type ExchangeInfo } from "./exchange.ts";
+import { verifyMerchantSig } from "./merchant-sig.ts";
 import { MerchantClient, MerchantError, publicOrderStatus, type OrderStatus } from "./merchant.ts";
 import { parsePayUri } from "./payuri.ts";
 import { Store, type IssuedRecord } from "./store.ts";
@@ -19,7 +20,7 @@ export const INTENT = "charge";
 const PROBLEM_BASE = "https://paymentauth.org/problems/";
 const HASH_CODE = /^[0-9A-Z]{103}$/; // a 64-byte hash in Crockford Base32 (docs.taler.net/core/api-common.html, "Hash codes")
 
-/** Settlement error reasons, draft-taler-charge-02, "Settlement Errors". */
+/** Settlement error reasons, draft-taler-charge-03, "Settlement Errors". */
 export type X402Reason =
   | "invalid_exact_taler_payment_flow"
   | "invalid_exact_taler_network"
@@ -28,6 +29,7 @@ export type X402Reason =
   | "invalid_exact_taler_order_expired"
   | "invalid_exact_taler_order_unpaid"
   | "invalid_exact_taler_h_contract_mismatch"
+  | "invalid_exact_taler_merchant_sig"
   | "invalid_exact_taler_order_unknown"
   | "invalid_exact_taler_backend_error"
   | "duplicate_settlement";
@@ -82,6 +84,7 @@ const REASON_PROBLEM: Record<X402Reason, Problem> = {
   invalid_exact_taler_order_expired: "payment-expired",
   invalid_exact_taler_order_unpaid: "verification-failed",
   invalid_exact_taler_h_contract_mismatch: "verification-failed",
+  invalid_exact_taler_merchant_sig: "verification-failed",
   invalid_exact_taler_order_unknown: "verification-failed",
   invalid_exact_taler_backend_error: "verification-failed",
   duplicate_settlement: "invalid-challenge",
@@ -170,7 +173,7 @@ export class Paywall {
     };
   }
 
-  /** draft-taler-charge-02, "Verification". */
+  /** draft-taler-charge-03, "Verification". */
   private async redeemIetf(orderId: string, resource: string): Promise<{ ok: true; paidAtMs: number } | { ok: false; status: 402 | 500; problem: Problem; detail: string }> {
     const rec = this.o.store.getIssued(orderId);
     if (!rec) return { ok: false, status: 402, problem: "invalid-challenge", detail: "Unknown order." };
@@ -192,17 +195,19 @@ export class Paywall {
 
   // ---- x402 settle ---------------------------------------------------------------------------
 
-  /** draft-taler-charge-02, "Payload and Settle": the facilitator's /settle, done here by the resource server. */
+  /** draft-taler-charge-03, "Payload and Settle": the facilitator's /settle, done here by the resource server. */
   private async handleX402(resource: string, header: string): Promise<PaywallResult> {
     const bytes = b64Decode(header);
     const text = bytes ? utf8(bytes) : null;
     const parsed = text !== null ? parseJson(text) : { ok: false as const };
-    if (!parsed.ok || !isObject(parsed.value)) return this.challenge(resource, "malformed-credential", "PAYMENT-SIGNATURE is not base64-encoded JSON.");
+    // A PAYMENT-SIGNATURE that is not a PaymentPayload at all is "Invalid Payment", which the x402 HTTP transport maps to 400
+    // ({{X402-HTTP}}, "Error Handling"); it is not a settlement, so there is no PAYMENT-RESPONSE and no new challenge.
+    if (!parsed.ok || !isObject(parsed.value)) return this.badRequest("PAYMENT-SIGNATURE is not base64-encoded JSON.");
     const p = parsed.value;
-    if (p["x402Version"] !== 2) return this.challenge(resource, "malformed-credential", "x402Version must be 2.");
+    if (p["x402Version"] !== 2) return this.badRequest("x402Version must be 2.");
     const acc = p["accepted"];
     const payload = p["payload"];
-    if (!isObject(acc) || !isObject(payload)) return this.challenge(resource, "malformed-credential", "PaymentPayload needs accepted and payload objects.");
+    if (!isObject(acc) || !isObject(payload)) return this.badRequest("PaymentPayload needs accepted and payload objects.");
 
     const net = typeof acc["network"] === "string" ? acc["network"] : undefined;
     const fail = (reason: X402Reason, detail: string, orderId?: string) => this.x402Failure(resource, reason, detail, orderId, net);
@@ -248,6 +253,16 @@ export class Paywall {
       if (st.status !== "paid") return fail("invalid_exact_taler_order_unpaid", "The merchant backend reports the order as unpaid.", rec.orderId);
       const bad = checkPaidContract(st, rec);
       if (bad) return fail("invalid_exact_taler_order_mismatch", bad, rec.orderId);
+      // 4b. merchantSig, if the client sent one: it MUST verify against the merchant public key of the order's contract
+      // terms. The public status read above is NOT skipped: the signature covers the contract hash only, not the order
+      // identifier, so it does not by itself tie hContract to this order (draft-taler-charge-03, "Merchant Payment Signature").
+      const sig = payload["merchantSig"];
+      if (sig !== undefined) {
+        const pubKey = st.terms?.merchant_pub;
+        if (typeof sig !== "string" || typeof pubKey !== "string" || !verifyMerchantSig(hContract, sig, pubKey)) {
+          return fail("invalid_exact_taler_merchant_sig", "payload.merchantSig does not verify against the merchant public key of the order.", rec.orderId);
+        }
+      }
     } catch (e) {
       return this.x402Backend(resource, backendDetail(e), net);
     }
@@ -274,7 +289,7 @@ export class Paywall {
       asset: rec.currency,
       payTo: rec.merchantBaseUrl,
       maxTimeoutSeconds: Math.max(1, Math.floor((rec.payDeadlineMs - this.now()) / 1000)),
-      extra: { paymentFlow: "upfront", talerPayUri: rec.talerPayUri },
+      extra: { paymentFlow: "upfront", talerAmount: rec.amount, talerPayUri: rec.talerPayUri },
     }));
   }
 
@@ -282,12 +297,12 @@ export class Paywall {
     const nowMs = this.now();
     this.o.store.purge(nowMs);
     const info = await this.exchangeInfo();
-    const baseUnits = toBaseUnits(parseAmount(this.o.price), info.digits); // throws if the price is finer than the unit
+    const baseUnits = toBaseUnits(parseAmount(this.o.price)); // always 10^-8; throws if the price is not a Taler amount
     const summary = this.o.describe?.(resource) ?? `Access to ${resource}`;
     const payDeadlineS = Math.floor(nowMs / 1000) + (this.o.payWindowS ?? 600);
     const refundDeadlineS = payDeadlineS + (this.o.refundWindowS ?? 3600);
     // Each order gets its own fulfillment_url, through the backend's ${ORDER_ID} placeholder, so that a wallet's
-    // repurchase detection never mistakes a second purchase for the first (draft-taler-charge-02, "Fulfillment URL").
+    // repurchase detection never mistakes a second purchase for the first (draft-taler-charge-03, "Fulfillment URL").
     const template = resource + (resource.includes("?") ? "&" : "?") + "order=${ORDER_ID}";
     const created = await this.o.merchant.createOrder({ amount: this.o.price, summary, fulfillmentUrl: template, payDeadlineS, refundDeadlineS });
     const st = await this.o.merchant.orderStatus(created.orderId);
@@ -321,7 +336,7 @@ export class Paywall {
       currency: rec.currency.toLowerCase(),
       description: rec.summary,
       externalId: rec.orderId,
-      methodDetails: { exchanges: rec.exchanges, merchantBaseUrl: rec.merchantBaseUrl, orderId: rec.orderId, talerPayUri: rec.talerPayUri },
+      methodDetails: { exchanges: rec.exchanges, merchantBaseUrl: rec.merchantBaseUrl, orderId: rec.orderId, talerAmount: rec.amount, talerPayUri: rec.talerPayUri },
     };
     const requestB64 = b64urlEncode(jcs(request));
     const expires = isoSeconds(rec.payDeadlineMs);
@@ -361,6 +376,15 @@ export class Paywall {
     return r;
   }
 
+  private badRequest(detail: string): PaywallResult {
+    return {
+      action: "respond",
+      status: 400,
+      headers: { "cache-control": "no-store", "content-type": "application/problem+json" },
+      body: JSON.stringify({ type: PROBLEM_BASE + "malformed-credential", title: titles["malformed-credential"], status: 400, detail }),
+    };
+  }
+
   private error500(detail: string): PaywallResult {
     return {
       action: "respond",
@@ -374,7 +398,7 @@ export class Paywall {
 const backendDetail = (e: unknown) => (e instanceof MerchantError ? `Merchant backend error (${e.httpStatus}).` : "Merchant backend unreachable.");
 
 /**
- * draft-taler-charge-02, "Verification", step 5: the paid contract matches what this server issued. Returns a
+ * draft-taler-charge-03, "Verification", step 5: the paid contract matches what this server issued. Returns a
  * description of the first mismatch, or undefined.
  */
 export function checkPaidContract(st: OrderStatus, rec: IssuedRecord): string | undefined {

@@ -28,26 +28,6 @@ test("gap 1: the list is the merchant's /config exchanges for the order's curren
   await assert.rejects(discoverExchanges(merchant, "EUR", fm.fetchViaHttp), /trusts no exchange for EUR/);
 }));
 
-test("gap 9: the unit comes from the exchange's /keys, never from the merchant's /config (which carries a decoy of 3)", async () => withFake(async (fm, merchant, reset) => {
-  reset();
-  assert.equal((await discoverExchanges(merchant, "KUDOS", fm.fetchViaHttp)).digits, 2);
-  fm.exchanges[0]!.digits = 0;
-  assert.equal((await discoverExchanges(merchant, "KUDOS", fm.fetchViaHttp)).digits, 0, "an exchange publishing 0 digits means whole units");
-  fm.exchanges[0]!.digits = 2;
-}));
-
-test("gap 9: the unit falls back to 10^-8 when no listed exchange publishes one, or they disagree", async () => withFake(async (fm, merchant, reset) => {
-  reset();
-  fm.exchanges[0]!.digits = null;
-  assert.equal((await discoverExchanges(merchant, "KUDOS", fm.fetchViaHttp)).digits, 8, "none publishes");
-  reset();
-  fm.exchanges.push({ path: "/exchange-b", masterPub: MASTER_B, currency: "KUDOS", digits: 3 });
-  assert.equal((await discoverExchanges(merchant, "KUDOS", fm.fetchViaHttp)).digits, 8, "they disagree (2 and 3)");
-  fm.exchanges.find((e) => e.path === "/exchange-b")!.digits = 2; // only the KUDOS exchanges count; the CHF one is ignored
-  assert.equal((await discoverExchanges(merchant, "KUDOS", fm.fetchViaHttp)).digits, 2, "they agree");
-  reset();
-}));
-
 test("an exchange that does not confirm the configured master key is not listed", async () => withFake(async (fm, merchant, reset) => {
   reset();
   fm.exchanges.push({ path: "/exchange-b", masterPub: MASTER_B, currency: "KUDOS", digits: 2, reportedMasterPub: "Z".repeat(52) });

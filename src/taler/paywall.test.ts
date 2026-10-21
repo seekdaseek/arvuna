@@ -5,12 +5,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
-import { startFakeMerchant, MASTER_A, MASTER_B, type FakeMerchant } from "./fake-merchant.ts";
+import { startFakeMerchant, MASTER_A, MASTER_B, VECTOR, type FakeMerchant } from "./fake-merchant.ts";
 import { MerchantClient } from "./merchant.ts";
 import { Paywall, paywallHandler } from "./paywall.ts";
 import { Store } from "./store.ts";
 import { payAndRetry } from "./client.ts";
 import { parsePayUri } from "./payuri.ts";
+import { amountMismatch, parseAmount } from "./amount.ts";
 import { parseWwwAuthenticate, challengeId } from "../common/challenge.ts";
 import { b64Decode, b64Encode, b64urlDecode, b64urlEncode, jcs, utf8 } from "../common/encoding.ts";
 
@@ -104,20 +105,21 @@ test("402 carries both formats, built from the merchant's order; gaps 1, 2, 3, 7
   assert.equal(c.www.map.get("intent"), "charge");
   assert.equal(c.www.map.get("id"), challengeId(SECRET, { realm: "arvuna.test", method: "taler", intent: "charge", request: c.www.map.get("request")!, expires: c.www.map.get("expires")! }));
   assert.equal(b64urlEncode(jcs(c.request)), c.www.map.get("request"), "request is JCS-serialised");
-  assert.equal(c.request.amount, "10", "gap 9: KUDOS:0.1 in the unit the exchange publishes (two digits)");
+  assert.equal(c.request.amount, "10000000", "-03: KUDOS:0.1 in base units of 10^-8");
   assert.equal(c.request.currency, "kudos");
   const md = c.request.methodDetails;
   assert.deepEqual(md.exchanges, [{ url: `${h.fm.url}/exchange-a/`, masterPub: MASTER_A }], "gap 1: only the exchange for this currency, as {url, masterPub}");
   assert.equal(md.merchantBaseUrl, `https://${h.fm.host}/instances/sandbox/`);
+  assert.equal(md.talerAmount, "KUDOS:0.1", "-03: methodDetails.talerAmount is the Taler amount string, currency spelled as the order has it");
   assert.deepEqual(parsePayUri(md.talerPayUri).orderId, md.orderId);
   // x402
   assert.equal(c.x.x402Version, 2);
   assert.equal(c.accepts.length, 1);
   const a = c.accepts[0]!;
-  assert.deepEqual([a["scheme"], a["network"], a["amount"], a["asset"]], ["exact", NET_A, "10", "KUDOS"], "gap 2: network is taler: + first 32 characters of the master key");
+  assert.deepEqual([a["scheme"], a["network"], a["amount"], a["asset"]], ["exact", NET_A, "10000000", "KUDOS"], "gap 2: network is taler: + first 32 characters of the master key");
   assert.equal(a["payTo"], `https://${h.fm.host}/instances/sandbox/`, "gap 11: the merchant base URL, trailing slash included");
   assert.equal(a["payTo"], parsePayUri((a["extra"] as { talerPayUri: string }).talerPayUri).merchantBaseUrl);
-  assert.deepEqual(a["extra"], { paymentFlow: "upfront", talerPayUri: md.talerPayUri }, "gap 3: paymentFlow upfront, and no extra.orderId");
+  assert.deepEqual(a["extra"], { paymentFlow: "upfront", talerAmount: "KUDOS:0.1", talerPayUri: md.talerPayUri }, "gap 3: paymentFlow upfront, extra.talerAmount (-03), and no extra.orderId");
 });
 
 test("gap 2: one accepts[] entry per listed exchange; each network is accepted, an unlisted one is not", async () => {
@@ -160,7 +162,7 @@ test("gap 4: x402 settles on {orderId, hContract} with the PUBLIC order status a
   assert.equal((await J(ok)).secret, "the paid thing");
   assert.equal(ok.headers.get("cache-control"), "private");
   const r = JSON.parse(utf8(b64Decode(ok.headers.get("payment-response")!)!)!);
-  assert.deepEqual(r, { success: true, transaction: c.orderId, network: NET_A, amount: "10" });
+  assert.deepEqual(r, { success: true, transaction: c.orderId, network: NET_A, amount: "10000000" });
   assert.equal("payer" in r, false, "Taler does not reveal the payer");
   const pub = h.fm.publicRequests.filter((q) => q.query.includes(`h_contract=${hc}`));
   assert.ok(pub.length >= 1, "the contract hash the client presented was sent to the merchant");
@@ -228,6 +230,7 @@ test("gap 12: every settlement error reason is produced, with the right cause", 
   };
   const a0 = (c: C) => c.accepts[0] as { extra: Record<string, unknown> };
   await expectReason("invalid_exact_taler_payment_flow", async () => { const c = await challenge(h); return { c, hc: h.fm.pay(c.orderId), over: { accepted: { ...a0(c), extra: { talerPayUri: a0(c).extra["talerPayUri"] } } } }; });
+  await expectReason("invalid_exact_taler_order_mismatch", async () => { const c = await challenge(h); return { c, hc: h.fm.pay(c.orderId), over: { accepted: { ...a0(c), extra: { ...a0(c).extra, talerAmount: "KUDOS:0.01" } } } }; }); // -03: a tampered talerAmount
   await expectReason("invalid_exact_taler_network", async () => { const c = await challenge(h); return { c, hc: h.fm.pay(c.orderId), over: { accepted: { ...a0(c), network: "taler:ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ" } } }; });
   await expectReason("invalid_exact_taler_order_mismatch", async () => { const c = await challenge(h); return { c, hc: h.fm.pay(c.orderId), over: { accepted: { ...a0(c), amount: "1" } } }; });
   await expectReason("invalid_exact_taler_order_mismatch", async () => { const c = await challenge(h); return { c, hc: h.fm.pay(c.orderId), over: { payload: { orderId: "someone-else", hContract: A103 } } }; });
@@ -236,6 +239,11 @@ test("gap 12: every settlement error reason is produced, with the right cause", 
   await expectReason("invalid_exact_taler_order_unpaid", async () => { const c = await challenge(h); return { c, hc: h.fm.claim(c.orderId) }; }); // claimed, not paid
   await expectReason("invalid_exact_taler_h_contract_mismatch", async () => { const c = await challenge(h); h.fm.pay(c.orderId); return { c, hc: A103 }; });
   await expectReason("invalid_exact_taler_order_unknown", async () => { const c = await challenge(h); const hc = h.fm.pay(c.orderId); h.fm.forget(c.orderId); return { c, hc }; });
+  { // merchantSig present and wrong: the real vector's signature, presented for a contract hash it does not sign
+    const c = await challenge(h); const hc = h.fm.pay(c.orderId);
+    const r = await h.get("/api/quote", { "payment-signature": xsig(c, hc, { payload: { orderId: c.orderId, hContract: hc, merchantSig: VECTOR.merchantSig } }) });
+    assert.equal(reasonOf(r), "invalid_exact_taler_merchant_sig"); assert.equal(r.status, 402); seen.add("invalid_exact_taler_merchant_sig");
+  }
   { // duplicate
     const c = await challenge(h); const hc = h.fm.pay(c.orderId);
     assert.equal((await h.get("/api/quote", { "payment-signature": xsig(c, hc) })).status, 200);
@@ -261,7 +269,7 @@ test("gap 12: every settlement error reason is produced, with the right cause", 
   }
   assert.deepEqual([...seen].sort(), [
     "duplicate_settlement", "invalid_exact_taler_backend_error", "invalid_exact_taler_h_contract_malformed", "invalid_exact_taler_h_contract_mismatch",
-    "invalid_exact_taler_network", "invalid_exact_taler_order_expired", "invalid_exact_taler_order_mismatch", "invalid_exact_taler_order_unknown",
+    "invalid_exact_taler_merchant_sig", "invalid_exact_taler_network", "invalid_exact_taler_order_expired", "invalid_exact_taler_order_mismatch", "invalid_exact_taler_order_unknown",
     "invalid_exact_taler_order_unpaid", "invalid_exact_taler_payment_flow",
   ]);
 });
@@ -320,7 +328,12 @@ test("IETF: tampering, another resource, malformed credentials and other schemes
   r = await h.get("/api/quote", { authorization: "Bearer abc" });
   assert.equal((await J(r)).type, "https://paymentauth.org/problems/payment-required");
   r = await h.get("/api/quote", { "payment-signature": "%%%" });
+  assert.equal(r.status, 400, "-03: an x402 payload that is not a PaymentPayload is Invalid Payment, 400 in the x402 HTTP transport");
+  assert.equal(r.headers.get("payment-response"), null, "it is not a settlement, so there is no PAYMENT-RESPONSE");
   assert.equal((await J(r)).type, "https://paymentauth.org/problems/malformed-credential");
+  for (const bad of [{ x402Version: 1 }, { x402Version: 2, accepted: {} }, { x402Version: 2, payload: {} }]) {
+    assert.equal((await h.get("/api/quote", { "payment-signature": b64Encode(JSON.stringify(bad)) })).status, 400);
+  }
   assert.equal((await h.get("/api/quote", { authorization: ietfCred(c) })).status, 200, "none of the above consumed the order");
 });
 
@@ -409,21 +422,111 @@ test("gap 8: fulfillment_url uses the ${ORDER_ID} placeholder, so every order's 
   assert.notEqual(h.fm.orders.get(a.orderId)!.fulfillmentUrl, h.fm.orders.get(b.orderId)!.fulfillmentUrl);
 });
 
-test("gap 9: the unit comes from the exchange; 0.1 becomes 10, 100, or 10000000; an amount finer than the unit is not issued", async () => {
+test("-03 amount: the unit is always 10^-8 and no exchange or /config currency specification is consulted", async () => {
+  // the fake exchange publishes 2 digits and /config carries a decoy of 3; neither may change the amount
   let h = await harness();
-  assert.equal((await challenge(h)).request.amount, "10", "the exchange publishes 2 digits; the merchant's /config decoy says 3");
+  assert.equal((await challenge(h)).request.amount, "10000000");
   await h.close(); open.pop();
-  h = await harness({ configure: (fm) => { fm.exchanges[0]!.digits = 3; } });
-  assert.equal((await challenge(h)).request.amount, "100");
-  await h.close(); open.pop();
-  h = await harness({ configure: (fm) => { fm.exchanges[0]!.digits = null; } });
-  assert.equal((await challenge(h)).request.amount, "10000000", "no specification published: 10^-8");
-  await h.close(); open.pop();
+  for (const digits of [0, 3, null]) {
+    h = await harness({ configure: (fm) => { fm.exchanges[0]!.digits = digits; } });
+    assert.equal((await challenge(h)).request.amount, "10000000", `exchange digits ${digits}`);
+    await h.close(); open.pop();
+  }
   h = await harness({ price: "KUDOS:0.001" });
-  const r = await h.get("/api/quote");
-  assert.equal(r.status, 500, "KUDOS:0.001 is finer than 10^-2: the server must not issue it");
-  assert.equal(h.fm.orders.size, 0, "and no order was created at the merchant");
+  const c = await challenge(h);
+  assert.equal(c.request.amount, "100000", "a fine amount needs no refusal any more: 0.001 KUDOS is 100000 units");
+  assert.equal(c.request.methodDetails.talerAmount, "KUDOS:0.001");
+  await h.close(); open.pop();
+  h = await harness({ price: "KUDOS:1" });
+  assert.equal((await challenge(h)).request.amount, "100000000", "one whole unit of any currency is 10^8");
+  await h.close(); open.pop();
+  assert.throws(() => parseAmount("KUDOS:abc"), /invalid Taler amount/, "a price that is not a Taler amount is refused when the paywall is built");
 });
+
+test("-03 amount: the client refuses to pay when amount and talerAmount differ, in either format", async () => {
+  for (const format of ["ietf", "x402"] as const) {
+    // a server that lies: it rewrites the 402 so the base-unit amount no longer matches talerAmount
+    const h = await harness();
+    const liar = createServer(async (rq, rs) => {
+      const up = await fetch(h.base + "/api/quote");
+      const hdrs: Record<string, string> = { "content-type": "application/problem+json" };
+      const www = up.headers.get("www-authenticate")!;
+      const xr = up.headers.get("payment-required")!;
+      const x = JSON.parse(utf8(b64Decode(xr)!)!);
+      x.accepts[0].amount = "1";
+      hdrs["payment-required"] = b64Encode(jcs(x));
+      const w = parseWwwAuthenticate(www)[0]!;
+      const req = JSON.parse(utf8(b64urlDecode(w.map.get("request")!)!)!);
+      req.amount = "1";
+      hdrs["www-authenticate"] = www.replace(w.map.get("request")!, b64urlEncode(jcs(req)));
+      rs.writeHead(402, hdrs); rs.end("{}"); void rq;
+    });
+    await new Promise<void>((r) => liar.listen(0, "127.0.0.1", r));
+    let paid = false;
+    try {
+      await assert.rejects(
+        payAndRetry(`http://127.0.0.1:${(liar.address() as AddressInfo).port}/`, format, async () => { paid = true; }),
+        /refusing to pay: amount differs from talerAmount/,
+      );
+      assert.equal(paid, false, "the wallet was never asked to pay");
+    } finally {
+      liar.closeAllConnections(); liar.close();
+    }
+  }
+});
+
+test("-03 amount: amountMismatch compares exact decimals and currencies", () => {
+  assert.equal(amountMismatch("10000000", "kudos", "KUDOS:0.1"), undefined);
+  assert.equal(amountMismatch("100000000", "eur", "EUR:1"), undefined);
+  assert.equal(amountMismatch("100000000", "eur", "EUR:1.00000000"), undefined);
+  assert.equal(amountMismatch("10000001", "kudos", "KUDOS:0.1"), "amount differs from talerAmount");
+  assert.equal(amountMismatch("10000000", "eur", "KUDOS:0.1"), "currency differs from talerAmount");
+  assert.equal(amountMismatch("10000000", "kudos", undefined), "talerAmount is missing");
+  assert.equal(amountMismatch("0.1", "kudos", "KUDOS:0.1"), "amount is not a decimal integer string");
+  assert.equal(amountMismatch("010000000", "kudos", "KUDOS:0.1"), "amount is not a decimal integer string");
+  assert.equal(amountMismatch("1", "kudos", "KUDOS:0.100000001"), "talerAmount is not a Taler amount", "more than 8 fractional digits");
+  assert.equal(amountMismatch("1", "kudos", "KUDOS:4503599627370497"), "talerAmount is not a Taler amount", "integer part above 2^52");
+  assert.equal(amountMismatch("1", "kudos", "KUDOS:1."), "talerAmount is not a Taler amount");
+  assert.equal(amountMismatch("1", "kudos", "KUDOS:.1"), "talerAmount is not a Taler amount");
+  assert.equal(amountMismatch("1", "kudos", "A:B:1.5"), "talerAmount is not a Taler amount");
+  assert.equal(amountMismatch("1", "kud0s", "KUD0S:0.00000001"), "talerAmount is not a Taler amount", "the currency is ASCII letters only");
+  assert.equal(amountMismatch("1", "abcdefghijkl", "ABCDEFGHIJKL:0.00000001"), "talerAmount is not a Taler amount", "twelve letters are one too many");
+  assert.equal(amountMismatch("450359962737049600000000", "eur", "EUR:4503599627370496"), undefined, "2^52 itself is allowed");
+  assert.equal(amountMismatch("1", "kudos", "KUDOS:1,000"), "talerAmount is not a Taler amount", "the Taler grammar has no commas (RFC 8905 would ignore them)");
+});
+
+test("-03 merchantSig: a real merchant signature verifies; the same signature on another hash, key or byte does not", async () => withSigHarness(async (h) => {
+  // wiring: the order reports the real contract hash, and the contract names the real merchant key
+  const c = await challenge(h);
+  h.fm.pay(c.orderId); h.fm.useContractHash(c.orderId, VECTOR.hContract);
+  const sigHeader = (merchantSig: unknown) => xsig(c, VECTOR.hContract, { payload: { orderId: c.orderId, hContract: VECTOR.hContract, ...(merchantSig === undefined ? {} : { merchantSig }) } });
+  const flip = VECTOR.merchantSig.slice(0, 40) + (VECTOR.merchantSig[40] === "0" ? "1" : "0") + VECTOR.merchantSig.slice(41);
+  for (const bad of [flip, "A".repeat(103), VECTOR.merchantSig.slice(1), 5]) {
+    const r = await h.get("/api/quote", { "payment-signature": sigHeader(bad) });
+    assert.equal(r.status, 402);
+    assert.equal(reasonOf(r), "invalid_exact_taler_merchant_sig", String(bad).slice(0, 12));
+  }
+  assert.equal(h.store.getIssued(c.orderId)!.redeemed, false, "a bad signature consumes nothing");
+  const ok = await h.get("/api/quote", { "payment-signature": sigHeader(VECTOR.merchantSig) });
+  assert.equal(ok.status, 200, "the real signature, over the real hash, under the real key");
+  assert.equal(reasonOf(await h.get("/api/quote", { "payment-signature": sigHeader(VECTOR.merchantSig) })), "duplicate_settlement");
+}));
+
+test("-03 merchantSig: absent means the -02 path; present does not replace the public status read", async () => withSigHarness(async (h) => {
+  const c = await challenge(h);
+  const hc = h.fm.pay(c.orderId);
+  assert.equal((await h.get("/api/quote", { "payment-signature": xsig(c, hc) })).status, 200, "no merchantSig: settles on the public read");
+  // a real signature for ANOTHER contract of the same merchant, presented under this order: it verifies, but the public read says 403
+  const d = await challenge(h);
+  h.fm.pay(d.orderId);
+  const r = await h.get("/api/quote", { "payment-signature": xsig(d, VECTOR.hContract, { payload: { orderId: d.orderId, hContract: VECTOR.hContract, merchantSig: VECTOR.merchantSig } }) });
+  assert.equal(reasonOf(r), "invalid_exact_taler_h_contract_mismatch", "the signature does not bind the contract hash to this order; the public read does");
+  assert.equal(h.store.getIssued(d.orderId)!.redeemed, false);
+}));
+
+async function withSigHarness(body: (h: H) => Promise<void>) {
+  await body(await harness());
+}
 
 test("gap 10: the login token is requested with the narrowest scope the specification allows, order-simple", async () => {
   const h = await harness();
@@ -448,9 +551,20 @@ for (const format of ["ietf", "x402"] as const) {
     assert.equal(r.finalStatus, 200);
     assert.equal(JSON.parse(r.body).secret, "the paid thing");
     assert.ok(r.receipt, "a receipt header came back");
-    if (format === "x402") assert.deepEqual(Object.keys(r.payload as object).sort(), ["hContract", "orderId"]);
+    if (format === "x402") assert.deepEqual(Object.keys(r.payload as object).sort(), ["hContract", "orderId"], "no merchantSig: the wallet did not give one");
     const again = await fetch(h.base + "/api/quote", { headers: { [r.credential[0]]: r.credential[1] } });
     assert.equal(again.status, 402);
+  });
+
+  test(`reference client: after ${format} is accepted, the other format's credential for the same order is refused`, async () => {
+    const h = await harness();
+    const r = await payAndRetry(h.base + "/api/quote", format, async (c) => ({ hContract: h.fm.pay(c.orderId) }));
+    assert.equal(r.finalStatus, 200);
+    assert.ok(r.other, "the client built the other format's credential from the same 402");
+    const cross = await fetch(h.base + "/api/quote", { headers: { [r.other![0]]: r.other![1] } });
+    assert.equal(cross.status, 402);
+    assert.equal(h.store.hasConsumed(`${format === "ietf" ? "ietf" : NET_A}:${r.orderId}`), true);
+    assert.equal(h.store.hasConsumed(`${format === "ietf" ? NET_A : "ietf"}:${r.orderId}`), false, "only one key was inserted: the other format found the order redeemed");
   });
 
   test(`reference client whose wallet claims but does not pay stays locked (${format})`, async () => {

@@ -36,6 +36,8 @@ export interface ContractTermsView {
   fulfillment_url?: string;
   fulfillment_message?: string;
   merchant_base_url?: string;
+  /** The merchant's public key (Crockford Base32), which verifies the merchant's payment signature. */
+  merchant_pub?: string;
   pay_deadline?: { t_s?: number | "never" };
   refund_deadline?: { t_s?: number | "never" };
   exchanges?: { url?: string; master_pub?: string }[];
@@ -145,7 +147,7 @@ export class MerchantClient {
 
   /**
    * POST /private/orders. create_token is left at its default (true), so the order has a claim token; the token
-   * is not returned from here: it reaches the client only inside the Taler Pay URI (draft-taler-charge-02, "Binding").
+   * is not returned from here: it reaches the client only inside the Taler Pay URI (draft-taler-charge-03, "Binding").
    * The fulfillment URL may hold the placeholder ${ORDER_ID}, which the backend replaces with the order identifier.
    */
   async createOrder(o: { amount: string; summary: string; fulfillmentUrl: string; payDeadlineS?: number; refundDeadlineS?: number }): Promise<CreatedOrder> {
@@ -191,7 +193,7 @@ export class MerchantClient {
 }
 
 /**
- * The public, credential-free order status used by x402 settle (draft-taler-charge-02, "Payload and Settle"):
+ * The public, credential-free order status used by x402 settle (draft-taler-charge-03, "Payload and Settle"):
  * GET {merchantBaseUrl}orders/{orderId}?h_contract=... The answer is read from the status code alone:
  * 200 paid, 402 not paid, 403 hash mismatch, 404 unknown. No Authorization header is sent.
  */

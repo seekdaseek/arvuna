@@ -1,7 +1,7 @@
 // Durable state of the paywall, in SQLite (node:sqlite): the orders it issued, and the consumption keys of
 // the proofs it has accepted. A file-backed database survives a restart; ":memory:" is for tests.
 // The claim is one transaction: of two concurrent presentations exactly one succeeds
-// (draft-taler-charge-02, "Single-use claim").
+// (draft-taler-charge-03, "Single-use claim").
 import { DatabaseSync } from "node:sqlite";
 
 export interface IssuedRecord {

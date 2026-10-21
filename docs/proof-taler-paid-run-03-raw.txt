@@ -1,0 +1,68 @@
+# npm run e2e (both formats), against the demo server running draft-taler-charge-03 behaviour
+wallet balance before:
+KUDOS:9.5 in=KUDOS:0 out=KUDOS:0 @e:exchange.demo.taler.net
+
+=== ietf ===  GET http://127.0.0.1:8402/api/quote
+402 received. order 2026.294-7EDEZ0TSCCCJC
+  amount 10000000 (units of 10^-8) = KUDOS:0.1
+  exchanges listed: https://exchange.demo.taler.net/
+  taler_pay_uri taler://pay/backend.demo.taler.net/instances/sandbox/2026.294-7EDEZ0TSCCCJC/?c=<claim token>
+paying with the wallet CLI ...
+}
+Waiting for transaction 'txn:payment:J3TH3MWXKDETM1P6SQ1VPJD2PZ2BQWSDYVVHV8SA9PE7MKTJJD4G' to finish
+Finished with status 'done'.
+retry with ietf credential -> HTTP 200
+receipt header decoded: {"status":"success","method":"taler","timestamp":"2026-10-21T10:44:43Z","reference":"2026.294-7EDEZ0TSCCCJC"}
+body: {"message":"paid content","servedAt":"2026-10-21T10:44:49.537Z"}
+merchant order_status for 2026.294-7EDEZ0TSCCCJC: paid
+REPLAY of the same ietf credential -> HTTP 402 https://paymentauth.org/problems/invalid-challenge
+CROSS-FORMAT replay of the same order as payment-signature -> HTTP 402 duplicate_settlement
+order id: 2026.294-7EDEZ0TSCCCJC
+
+=== x402 ===  GET http://127.0.0.1:8402/api/quote
+402 received. order 2026.294-8S2AWKHYXHP7W
+  amount 10000000 (units of 10^-8) = KUDOS:0.1
+  exchanges listed: (none)
+  taler_pay_uri taler://pay/backend.demo.taler.net/instances/sandbox/2026.294-8S2AWKHYXHP7W/?c=<claim token>
+paying with the wallet CLI ...
+}
+Waiting for transaction 'txn:payment:GJH6QP87J65JBRKZZPYRN9Q713BX97094J8JZPFJ0DRR3EH05VV0' to finish
+Finished with status 'done'.
+retry with x402 credential -> HTTP 200
+receipt header decoded: {"amount":"10000000","network":"taler:F80MFRG8HVH6R9CQ47KRFQSJP3T6DBJ4","success":true,"transaction":"2026.294-8S2AWKHYXHP7W"}
+body: {"message":"paid content","servedAt":"2026-10-21T10:45:24.860Z"}
+merchant order_status for 2026.294-8S2AWKHYXHP7W: paid
+REPLAY of the same x402 credential -> HTTP 402 duplicate_settlement
+CROSS-FORMAT replay of the same order as authorization -> HTTP 402 https://paymentauth.org/problems/invalid-challenge
+order id: 2026.294-8S2AWKHYXHP7W
+
+wallet balance after:
+KUDOS:9.3 in=KUDOS:0 out=KUDOS:0 @e:exchange.demo.taler.net
+exit status: 0
+
+# node scripts/e2e-taler-demo.ts x402sig (x402 with merchantSig read from the wallet database; not an interface)
+wallet balance before:
+KUDOS:9.3 in=KUDOS:0 out=KUDOS:0 @e:exchange.demo.taler.net
+
+=== x402 ===  GET http://127.0.0.1:8402/api/quote
+402 received. order 2026.294-1ZY7XMCSD69W8
+  amount 10000000 (units of 10^-8) = KUDOS:0.1
+  exchanges listed: (none)
+  taler_pay_uri taler://pay/backend.demo.taler.net/instances/sandbox/2026.294-1ZY7XMCSD69W8/?c=<claim token>
+paying with the wallet CLI ...
+}
+Waiting for transaction 'txn:payment:R0VZ6FJNYX2YGPYQ11J6FJ5NAEVSKBFV632N03Y0GYT0ARYC0ZPG' to finish
+Finished with status 'done'.
+merchantSig taken from the wallet database: 103 characters
+retry with x402 credential (payload with merchantSig) -> HTTP 200
+payload sent: {"orderId":"2026.294-1ZY7XMCSD69W8","hContract":"44626DCZSM5GPJNT44Q6618F9NXHJNHPVHQG5Z0A05KN8V9RVA2D4YWAHE2H2GFQ09TH64C13XRBQ7S7BPVB6CBQX9BYVPJRNHSKPB8","merchantSig":"<103 characters>"}
+receipt header decoded: {"amount":"10000000","network":"taler:F80MFRG8HVH6R9CQ47KRFQSJP3T6DBJ4","success":true,"transaction":"2026.294-1ZY7XMCSD69W8"}
+body: {"message":"paid content","servedAt":"2026-10-21T10:46:00.954Z"}
+merchant order_status for 2026.294-1ZY7XMCSD69W8: paid
+REPLAY of the same x402 credential -> HTTP 402 duplicate_settlement
+CROSS-FORMAT replay of the same order as authorization -> HTTP 402 https://paymentauth.org/problems/invalid-challenge
+order id: 2026.294-1ZY7XMCSD69W8
+
+wallet balance after:
+KUDOS:9.2 in=KUDOS:0 out=KUDOS:0 @e:exchange.demo.taler.net
+exit status: 0
