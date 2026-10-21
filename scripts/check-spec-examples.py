@@ -13,7 +13,11 @@ Checks, for each file given:
   4. for the Taler method specification: every shown JSON that contains a Taler Pay URI must agree with it,
      using the rule of LSD 0006 (order id = path segment between the last two slashes after dropping the
      query; merchant base URL = https:// + host + prefix path + "/"):
-       methodDetails.orderId and methodDetails.merchantBaseUrl, x402 payTo, and PAYMENT-RESPONSE transaction.
+       methodDetails.orderId and methodDetails.merchantBaseUrl, x402 payTo, and PAYMENT-RESPONSE transaction;
+     and, for version 02 of that specification: methodDetails.exchanges is a non-empty list of {url, masterPub};
+     every taler x402 network is "taler:" + the first 32 characters of the masterPub of a listed exchange;
+     extra.paymentFlow is "upfront"; the PAYMENT-SIGNATURE payload is {orderId, hContract} with orderId equal to
+     the identifier derived from accepted.extra.talerPayUri and hContract a 103-character Crockford Base32 hash.
 
 usage: check-spec-examples.py [--lenient-jcs] FILE...      exit status 1 if there is any mismatch"""
 import base64, json, re, sys
@@ -88,8 +92,26 @@ for path in args:
         segs = rest[len("taler://pay/"):].split("/")
         return segs[-2], "https://" + "/".join(segs[:-2]) + "/"
 
+    mver = re.search(r"^docname: draft-taler-charge-(\d+)\s*$", text, re.M)
+    taler_ver = int(mver.group(1)) if mver else 0   # the -02 rules below apply to version 02 and later
     uris_checked = 0
     derived_orders = set()
+    masters = set()
+    for m0 in re.finditer(r"~~~json\n(.*?)\n~~~", text, re.S):
+        try:
+            o0 = json.loads(m0.group(1))
+        except Exception:
+            continue
+        stack = [o0]
+        while stack:
+            x = stack.pop()
+            if isinstance(x, dict):
+                md0 = x.get("methodDetails")
+                if isinstance(md0, dict) and isinstance(md0.get("exchanges"), list):
+                    masters.update(e["masterPub"] for e in md0["exchanges"] if isinstance(e, dict) and isinstance(e.get("masterPub"), str))
+                stack.extend(x.values())
+            elif isinstance(x, list):
+                stack.extend(x)
     for m in re.finditer(r"~~~json\n(.*?)\n~~~", text, re.S):
         try:
             obj = json.loads(m.group(1))
@@ -111,11 +133,37 @@ for path in args:
                     mismatch(m.start(), f"methodDetails.orderId {md.get('orderId')!r} != order id {oid!r} derived from the Taler Pay URI")
                 if md.get("merchantBaseUrl") != base:
                     mismatch(m.start(), f"methodDetails.merchantBaseUrl {md.get('merchantBaseUrl')!r} != {base!r} derived from the Taler Pay URI")
+            if taler_ver >= 2 and md and "exchanges" in md:
+                exl = md["exchanges"]
+                okx = isinstance(exl, list) and len(exl) > 0 and all(
+                    isinstance(e, dict) and set(e) == {"url", "masterPub"} and isinstance(e["masterPub"], str) and len(e["masterPub"]) == 52 for e in exl)
+                if not okx:
+                    mismatch(m.start(), "methodDetails.exchanges must be a non-empty list of {url, masterPub} with 52-character master keys")
+                else:
+                    masters.update(e["masterPub"] for e in exl)
             ex = d.get("extra") if isinstance(d.get("extra"), dict) else None
             if ex and isinstance(ex.get("talerPayUri"), str):
                 oid, base = derive(ex["talerPayUri"]); uris_checked += 1; derived_orders.add(oid)
                 if d.get("payTo") != base:
                     mismatch(m.start(), f"payTo {d.get('payTo')!r} != {base!r} derived from the Taler Pay URI")
+                if taler_ver >= 2 and ex.get("paymentFlow") != "upfront":
+                    mismatch(m.start(), f"extra.paymentFlow is {ex.get('paymentFlow')!r}, must be 'upfront'")
+                net = d.get("network")
+                if taler_ver >= 2 and not (isinstance(net, str) and net.startswith("taler:")):
+                    mismatch(m.start(), f"network {net!r} is not a taler network")
+                elif taler_ver >= 2 and masters and net[len("taler:"):] not in {k[:32] for k in masters}:
+                    mismatch(m.start(), f"network {net!r} is not taler: + the first 32 characters of a listed exchange's masterPub")
+            pl = d.get("payload") if isinstance(d.get("payload"), dict) else None
+            acc = d.get("accepted") if isinstance(d.get("accepted"), dict) else None
+            if taler_ver >= 2 and acc and pl is not None and isinstance(acc.get("extra"), dict) and isinstance(acc["extra"].get("talerPayUri"), str):
+                oid, _ = derive(acc["extra"]["talerPayUri"])
+                if set(pl) != {"orderId", "hContract"}:
+                    mismatch(m.start(), f"x402 payload fields are {sorted(pl)}, must be ['hContract', 'orderId']")
+                else:
+                    if pl["orderId"] != oid:
+                        mismatch(m.start(), f"payload.orderId {pl['orderId']!r} != {oid!r} derived from accepted.extra.talerPayUri")
+                    if not (isinstance(pl["hContract"], str) and re.fullmatch(r"[0-9A-Z]{103}", pl["hContract"])):
+                        mismatch(m.start(), "payload.hContract is not a 103-character Crockford Base32 hash")
     for m in re.finditer(r"~~~json\n(.*?)\n~~~", text, re.S):
         try:
             obj = json.loads(m.group(1))
