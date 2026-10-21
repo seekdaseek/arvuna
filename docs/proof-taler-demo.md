@@ -179,7 +179,165 @@ Not shown: the paid run was done by one wallet, one resource and one merchant in
 
 ## Limits of this prototype's Taler verification
 
+These limits describe the prototype of the first two runs (sections 1 to 5). The prototype now follows draft-taler-charge-02 and some of them are gone: see "Paid run against -02" below for what it does and what is still missing.
+
 - The server asks the merchant whether the order is paid; it does not look at any Taler token or deposit itself.
 - An unauthenticated request creates one order on the merchant. There is no rate limit or order reuse yet.
 - State (issued orders, used credentials) is in memory and is lost on restart.
 - The x402 `PAYMENT-RESPONSE.transaction` field is documented as a blockchain hash; Taler has none, so the order id is used.
+
+## Paid run against -02
+
+The prototype was brought in line with [draft-taler-charge-02](specs/draft-taler-charge-02.md), and the paid run was repeated against the public Taler demo (`backend.demo.taler.net`) with the demo wallet: once in the IETF Payment format, once in x402, and each credential was then presented a second time. Demo money only (KUDOS on the public demo); no real exchange and no real money were involved. Sections 1 to 5 above are the record of the earlier runs and are kept unchanged. Where they say the client requests the token scope `order-full` or that every order's fulfillment URL has a random query parameter, the current code does what this section says.
+
+### What changed in the code
+
+| Gap | What the code does now | Tested by |
+|---|---|---|
+| 1. Exchanges | `methodDetails.exchanges` is `{url, masterPub}` for each exchange in the merchant's `/config` that is trusted for the order's currency | `exchange.test.ts`, "402 carries both formats" |
+| 2. x402 network | `taler:` plus the first 32 characters of the exchange master public key, one `accepts[]` entry per listed exchange | "one accepts[] entry per listed exchange" |
+| 3. Payment flow | `extra.paymentFlow` is `"upfront"` and `extra` holds only that and `talerPayUri`; a requirement without it is refused | "a requirement without paymentFlow upfront is refused" |
+| 4. Payload and settle | payload `{orderId, hContract}`; the client takes `hContract` from the wallet's payment record (`info.contractTermsHash`); settle asks the public `GET orders/$ORDER_ID?h_contract=...` with no credential | "x402 settles on {orderId, hContract} with the PUBLIC order status" |
+| 5. Consumption key | `network + ":" + orderId` in a SQLite file, inserted atomically in one transaction with the order's redeemed flag, kept until the later of the pay and refund deadlines | store tests; "a restart does not forget a used proof" |
+| 6. Contract exchanges | every exchange in the paid contract must be in the advertised list, in both formats | "a paid contract that names an exchange the challenge did not list is refused" |
+| 7. Claim token | orders are created with `create_token` on; the token reaches the client only inside the Taler Pay URI | "the claim token travels only inside the Taler Pay URI" |
+| 8. Fulfillment | `fulfillment_url` ends in `?order=${ORDER_ID}` and the backend substitutes the id; the refund deadline is set explicitly (pay deadline plus one hour) | "fulfillment_url uses the ${ORDER_ID} placeholder" |
+| 9. Unit | taken from the exchange's `/keys` (`num_fractional_input_digits`), 10^-8 when none is published or they differ; the merchant's `/config` is not used | "the unit comes from the exchange" |
+| 10. Token scope | `order-simple` (orders-read and orders-write), instead of `order-full` | "the login token is requested with the narrowest scope" |
+| 11. `payTo` | the merchant base URL derived from the Taler Pay URI, trailing slash included | "402 carries both formats" |
+| 12. Errors | the ten settlement reasons of the draft | "every settlement error reason is produced" |
+
+The paywall also checks the paid contract through the private status (amount, merchant, fulfillment URL, exchange list, refund status) before it consumes an x402 proof, as the draft advises for a server with private access, and the IETF receipt time is the merchant's `last_payment`.
+
+Tests: 45 before, 61 now (11 common, 17 checker, 3 pay URI, 3 store, 4 exchange, 23 paywall and client), all passing, and `tsc` is clean. Five deliberate breaks of the code (never claim a proof, skip the contract exchange check, use the whole master key as the network, request the `order-full` scope, take the unit from the first exchange only) were each caught by the test written for it.
+
+### The 402 the prototype now sends
+
+From the demo server running against the demo backend (the claim token is masked here; the order was not paid):
+
+```json
+{
+  "amount": "10",
+  "currency": "kudos",
+  "description": "arvuna demo: /api/quote",
+  "externalId": "2026.294-VW4R4WM6TX7N4",
+  "methodDetails": {
+    "exchanges": [{ "masterPub": "F80MFRG8HVH6R9CQ47KRFQSJP3T6DBJ4K1D9B703RJY3Z39TBMJ0", "url": "https://exchange.demo.taler.net/" }],
+    "merchantBaseUrl": "https://backend.demo.taler.net/instances/sandbox/",
+    "orderId": "2026.294-VW4R4WM6TX7N4",
+    "talerPayUri": "taler://pay/backend.demo.taler.net/instances/sandbox/2026.294-VW4R4WM6TX7N4/?c=<claim token>"
+  }
+}
+```
+
+and the decoded `PAYMENT-REQUIRED`:
+
+```json
+{
+  "accepts": [{
+    "amount": "10",
+    "asset": "KUDOS",
+    "extra": {
+      "paymentFlow": "upfront",
+      "talerPayUri": "taler://pay/backend.demo.taler.net/instances/sandbox/2026.294-VW4R4WM6TX7N4/?c=<claim token>"
+    },
+    "maxTimeoutSeconds": 598,
+    "network": "taler:F80MFRG8HVH6R9CQ47KRFQSJP3T6DBJ4",
+    "payTo": "https://backend.demo.taler.net/instances/sandbox/",
+    "scheme": "exact"
+  }],
+  "error": "PAYMENT-SIGNATURE header is required",
+  "resource": { "description": "arvuna demo: /api/quote", "mimeType": "application/json", "url": "http://127.0.0.1:8402/api/quote" },
+  "x402Version": 2
+}
+```
+
+### The run
+
+`npm run e2e` against a fresh store. Raw output: [proof-taler-paid-run-02-raw.txt](proof-taler-paid-run-02-raw.txt).
+
+```
+
+> arvuna@0.0.1 e2e
+> node scripts/e2e-taler-demo.ts
+
+wallet balance before:
+KUDOS:9.7 in=KUDOS:0 out=KUDOS:0 @e:exchange.demo.taler.net
+
+=== ietf ===  GET http://127.0.0.1:8402/api/quote
+402 received. order 2026.294-063HKCN4RQXMM
+  exchanges listed: https://exchange.demo.taler.net/
+  taler_pay_uri taler://pay/backend.demo.taler.net/instances/sandbox/2026.294-063HKCN4RQXMM/?c=<claim token>
+paying with the wallet CLI ...
+}
+Waiting for transaction 'txn:payment:P5D1FHM3DTN3A4HT0H6804NPHFQ4EQ8DAKQT7HEAEBP7Z98KZ97G' to finish
+Finished with status 'done'.
+retry with ietf credential -> HTTP 200
+receipt header decoded: {"status":"success","method":"taler","timestamp":"2026-10-21T09:20:28Z","reference":"2026.294-063HKCN4RQXMM"}
+body: {"message":"paid content","servedAt":"2026-10-21T09:20:38.718Z"}
+merchant order_status for 2026.294-063HKCN4RQXMM: paid
+REPLAY of the same ietf credential -> HTTP 402 https://paymentauth.org/problems/invalid-challenge
+order id: 2026.294-063HKCN4RQXMM
+
+=== x402 ===  GET http://127.0.0.1:8402/api/quote
+402 received. order 2026.294-QBWSJ3XQ0ZNR4
+  exchanges listed: (none)
+  taler_pay_uri taler://pay/backend.demo.taler.net/instances/sandbox/2026.294-QBWSJ3XQ0ZNR4/?c=<claim token>
+paying with the wallet CLI ...
+}
+Waiting for transaction 'txn:payment:7CHMPXX373N1J55T5WFWFKQNHT62KCY1XWC4C0MBGNHEH4E3E3BG' to finish
+Finished with status 'done'.
+retry with x402 credential -> HTTP 200
+receipt header decoded: {"amount":"10","network":"taler:F80MFRG8HVH6R9CQ47KRFQSJP3T6DBJ4","success":true,"transaction":"2026.294-QBWSJ3XQ0ZNR4"}
+body: {"message":"paid content","servedAt":"2026-10-21T09:20:43.089Z"}
+merchant order_status for 2026.294-QBWSJ3XQ0ZNR4: paid
+REPLAY of the same x402 credential -> HTTP 402 duplicate_settlement
+order id: 2026.294-QBWSJ3XQ0ZNR4
+
+wallet balance after:
+KUDOS:9.5 in=KUDOS:0 out=KUDOS:0 @e:exchange.demo.taler.net
+```
+
+(The single `}` lines are the end of the wallet's own printout of the contract, which the script shortens to its last lines.)
+
+| | IETF Payment | x402 |
+|---|---|---|
+| Order | `2026.294-063HKCN4RQXMM` | `2026.294-QBWSJ3XQ0ZNR4` |
+| Wallet paid, then the retry returned | HTTP 200 and `Payment-Receipt` | HTTP 200 and `PAYMENT-RESPONSE` |
+| Merchant `order_status`, read by the script | `paid` | `paid` |
+| The same credential presented again | HTTP 402, `invalid-challenge` | HTTP 402, `duplicate_settlement` |
+
+The wallet balance went from 9.7 to 9.5, two payments of 0.1.
+
+### Checked at the merchant afterwards
+
+Asked directly with a fresh `order-simple` login token (`GET /instances/sandbox/private/orders/{id}`), not through the prototype:
+
+| | IETF order | x402 order |
+|---|---|---|
+| `order_status` | `paid` | `paid` |
+| `contract_terms.fulfillment_url` | `http://127.0.0.1:8402/api/quote?order=2026.294-063HKCN4RQXMM` | `http://127.0.0.1:8402/api/quote?order=2026.294-QBWSJ3XQ0ZNR4` |
+| `refund_deadline` minus `pay_deadline` | 3600 s | 3600 s |
+| `contract_terms.exchanges` | the demo exchange, master key `F80MFRG8HV...TBMJ0` | the same |
+| `merchant_base_url` | `https://backend.demo.taler.net/instances/sandbox/` | the same |
+| `last_payment` | `2026-10-21T09:20:28Z`, the receipt time | `2026-10-21T09:20:41Z` |
+
+### The conformance checker on this 402
+
+`node src/conformance/cli.ts http://127.0.0.1:8402/api/quote` reported 29 pass, 0 fail, 0 warn: see [conformance/arvuna-taler-prototype.md](conformance/arvuna-taler-prototype.md). The checker is generic and does not know the draft's own fields (the exchange list, the network reference, the payment flow, the payload); those are covered by the tests above and by `scripts/check-spec-examples.py` on the draft.
+
+### What this shows, and what it does not
+
+Shown: with the prototype following draft -02, a real Taler wallet paid a real demo order in each format, the paywall verified the payment with the merchant backend (x402 through the public order status with the wallet's contract hash, and no merchant credential), served the resource with a receipt, and refused a second presentation of each credential.
+
+Not shown, and still missing against the draft:
+
+- The restart case was tested with the store, and in the paywall tests with a file-backed store, but not in this live run.
+- The live demo has one exchange for KUDOS. Several exchanges, differing units and a missing specification are tested only against the offline stand-in.
+- There is no separate facilitator: the resource server settles against its own merchant backend. The draft's note that a facilitator can do it with the public status alone is not exercised.
+- Per-product fulfillment URLs (repurchase detection) and orders with a `fulfillment_message` are not implemented, and the browser case (a session-bound payment) is not either.
+- Refunds are not granted by the prototype; it sets the refund deadline and refuses an order refunded in full.
+- Orders are still created on every unauthenticated request, with no rate limit, no reuse of an open order and no removal of expired unpaid orders.
+- The consumption key is not prefixed with the merchant base URL, which the draft suggests for a store shared by several merchant instances; this store serves one.
+- The store is a single SQLite file for one process.
+- The merchant payment signature (draft question OQ-11) is not used; the proof check relies on the public order status.

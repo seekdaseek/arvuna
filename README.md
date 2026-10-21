@@ -6,16 +6,17 @@ Open payment methods for HTTP 402 on public payment rails.
 
 **Prototype.** It shows that the idea is feasible. It is not the finished project: the production work is listed as milestones in [docs/ROADMAP.md](docs/ROADMAP.md), and none of that has been started.
 
-What runs, each part with tests that were executed (`npm test`: 45 tests, all passing):
+What runs, each part with tests that were executed (`npm test`: 61 tests, all passing):
 
-- **A Taler adapter** (`src/taler/`). One protected route answers `402` in both formats at once, built from a real order on a GNU Taler merchant backend: the IETF `WWW-Authenticate: Payment` challenge and the x402 v2 `PAYMENT-REQUIRED` header. It accepts a retry in either format, asks the merchant whether the order is paid, and returns a receipt. It talks to Taler over HTTP only.
+- **A Taler adapter** (`src/taler/`), which follows [draft-taler-charge-02](docs/specs/draft-taler-charge-02.md). One protected route answers `402` in both formats at once, built from a real order on a GNU Taler merchant backend: the IETF `WWW-Authenticate: Payment` challenge, which lists the exchanges the merchant accepts, and the x402 v2 `PAYMENT-REQUIRED` header, with one entry per exchange and the payment flow `upfront`. It accepts a retry in either format and honours each proof once: the x402 proof is checked with the merchant's public order status and the wallet's contract hash, and the used proofs are kept in a SQLite file, so a restart does not forget them. It talks to Taler over HTTP only.
 - **A conformance checker** (`src/conformance/`). `arvuna-check URL` makes one request, expects `402`, and checks what it finds against the two specifications, one rule at a time with the section cited. It never pays and never sends a credential. Results of a run against six public endpoints, including two findings, are in [docs/conformance-run.md](docs/conformance-run.md).
 
-A paid run on the public Taler demo has been done: a Taler wallet paid a real demo order and the route returned `200` with a receipt, once in each format. The transcript, a bug it exposed and how it was fixed, and what it does not show, are in [docs/proof-taler-demo.md](docs/proof-taler-demo.md). It used demo money (KUDOS) only.
+A paid run on the public Taler demo has been done twice. The first time exposed a bug, which was fixed. After the prototype was brought in line with the draft, the run was repeated: a Taler wallet paid a real demo order in each format, the route returned `200` with a receipt each time, and presenting each credential a second time was refused. The transcripts, what they show and what they do not, are in [docs/proof-taler-demo.md](docs/proof-taler-demo.md), section "Paid run against -02". Demo money (KUDOS) only.
 
-What does not run yet:
+What does not run yet, or is not yet done:
 
 - No SEPA Instant method, no settlement watcher, no packaging, no pilot.
+- Against the Taler draft: no separate facilitator (the resource server settles against its own merchant backend); no per-product fulfillment URLs, no orders with a fulfillment message and no browser (session-bound) case; no refunds granted, no removal of expired unpaid orders, no rate limit on order creation; only the one demo exchange has been used live, and several exchanges and differing units are tested against an offline stand-in only. The list with reasons is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 Try it (Node 24 or later). The expected output below was produced by running each command.
 
@@ -30,9 +31,9 @@ npm test
 Expected output (summary lines):
 
 ```
-ℹ tests 45
+ℹ tests 61
 ℹ suites 0
-ℹ pass 45
+ℹ pass 61
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
@@ -70,7 +71,7 @@ npm run demo
 Expected output (the Taler-backed paywall, which needs network access to the public Taler demo; leave it running and `curl -i http://127.0.0.1:8402/api/quote` answers `402`):
 
 ```
-arvuna demo on http://127.0.0.1:8402  paid route: /api/quote  backend: https://backend.demo.taler.net
+arvuna demo on http://127.0.0.1:8402  paid route: /api/quote  backend: https://backend.demo.taler.net  store: .arvuna/store.sqlite
 ```
 
 `npm run e2e` needs demo money in a Taler test wallet and is described in [docs/proof-taler-demo.md](docs/proof-taler-demo.md); it is not part of this quick check.
@@ -79,11 +80,13 @@ arvuna demo on http://127.0.0.1:8402  paid route: /api/quote  backend: https://b
 
 | Claim | How to check | Evidence |
 |---|---|---|
-| 45 tests pass | `npm install && npm test` | Output above; tests in [common](src/common/common.test.ts), [paywall](src/taler/paywall.test.ts), [conformance](src/conformance/conformance.test.ts) |
-| A protected route answers 402 in both formats at once | `npm run demo`, then `curl -i http://127.0.0.1:8402/api/quote`: look for `www-authenticate: Payment` and `payment-required` headers | [Decoded response, from a real merchant order](docs/proof-taler-demo.md#3-the-protected-route-answers-402-in-both-formats) |
-| A real Taler demo order was paid in each format: IETF order `2026.293-Z2SX6Z5QR12R2`, x402 order `2026.293-CXZDGE1S3PW1M` | `curl -s -H 'Authorization: Bearer secret-token:sandbox' https://backend.demo.taler.net/instances/sandbox/private/orders/2026.293-Z2SX6Z5QR12R2 \| grep -o '"order_status": *"[a-z]*"'` prints `paid`; repeat with the other id. `sandbox` is the published password of the public demo instance, and the money is demo money | [Paid-run transcript and merchant check](docs/proof-taler-demo.md#5-the-paid-run), [raw output](docs/proof-taler-paid-run-raw.txt) |
+| 61 tests pass | `npm install && npm test` | Output above; tests in [common](src/common/common.test.ts), [paywall](src/taler/paywall.test.ts), [store](src/taler/store.test.ts), [exchange](src/taler/exchange.test.ts), [pay URI](src/taler/payuri.test.ts), [conformance](src/conformance/conformance.test.ts) |
+| A protected route answers 402 in both formats at once | `npm run demo`, then `curl -i http://127.0.0.1:8402/api/quote`: look for `www-authenticate: Payment` and `payment-required` headers | [The 402 from the prototype following the draft](docs/proof-taler-demo.md#paid-run-against--02) |
+| A real Taler demo order was paid in each format by a Taler wallet, with the prototype following the draft: IETF order `2026.294-063HKCN4RQXMM`, x402 order `2026.294-QBWSJ3XQ0ZNR4` | `curl -s -H 'Authorization: Bearer secret-token:sandbox' https://backend.demo.taler.net/instances/sandbox/private/orders/2026.294-063HKCN4RQXMM \| grep -o '"order_status": *"[a-z]*"'` prints `paid`; repeat with the other id. `sandbox` is the published password of the public demo instance, and the money is demo money | [Transcript and merchant check](docs/proof-taler-demo.md#paid-run-against--02), [raw output](docs/proof-taler-paid-run-02-raw.txt); the earlier run is in [section 5](docs/proof-taler-demo.md#5-the-paid-run) |
+| A credential that was used is refused when presented again, also after a restart of the paywall | The live replays are in the transcript above; offline: `node --test --test-name-pattern="restart" src/taler/paywall.test.ts src/taler/store.test.ts` | [Replay results](docs/proof-taler-demo.md#paid-run-against--02), [paywall test](src/taler/paywall.test.ts), [store test](src/taler/store.test.ts) |
+| The prototype's own 402 passes the checker | `npm run demo`, then `node src/conformance/cli.ts http://127.0.0.1:8402/api/quote` ends with `29 pass, 0 fail` | [Checker report](docs/conformance/arvuna-taler-prototype.md) |
 | The conformance checker was run on six public endpoints and found two things | `node src/conformance/cli.ts 'https://2s.io/api/weather/zip?zip=94103' \| grep FAIL` and `node src/conformance/cli.ts https://x402.ochinimus.app/api/sol-price \| grep FAIL` each print one `FAIL` row | [Six endpoints, two findings](docs/conformance-run.md), [per-target tables](docs/conformance) |
-| A bug found by the paid run (every order had the same fulfillment URL, so a wallet refused to pay a repeat purchase) was fixed, with a test written first | `node --test --test-name-pattern="own fulfillment_url" src/taler/paywall.test.ts` | [First attempt and cause](docs/proof-taler-demo.md#attempt-1-ietf-passes-x402-fails-a-bug-in-this-repository), [fix commit 33fcd57](https://github.com/seekdaseek/arvuna/commit/33fcd57), [raw first attempt](docs/proof-taler-paid-run-raw-attempt1.txt) |
+| A bug found by the paid run (every order had the same fulfillment URL, so a wallet refused to pay a repeat purchase) was fixed, with a test written first | `node --test --test-name-pattern="gap 8" src/taler/paywall.test.ts` (the fix has since been replaced by the `${ORDER_ID}` placeholder the draft describes; the test now checks that) | [First attempt and cause](docs/proof-taler-demo.md#attempt-1-ietf-passes-x402-fails-a-bug-in-this-repository), [fix commit 33fcd57](https://github.com/seekdaseek/arvuna/commit/33fcd57), [raw first attempt](docs/proof-taler-paid-run-raw-attempt1.txt) |
 
 ## The problem
 

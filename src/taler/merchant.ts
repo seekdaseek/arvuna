@@ -1,6 +1,6 @@
 // Minimal client for the GNU Taler merchant backend REST API. HTTP only: no Taler library is
 // imported, vendored or linked. Endpoint behaviour was probed against https://backend.demo.taler.net
-// on 2026-10-20 (see docs/proof-taler-demo.md).
+// (see docs/proof-taler-demo.md).
 
 export type MerchantAuth =
   | { kind: "password"; password: string } // exchanged for a login token at /private/token
@@ -15,6 +15,12 @@ export interface MerchantOptions {
   fetch?: typeof fetch;
   /** Per-request timeout, ms. Long-polls get their poll time added. */
   timeoutMs?: number;
+  /**
+   * Scope requested for the login token. The default, "order-simple", is orders-read plus orders-write: it
+   * "allows the creation of orders and checking of payment status", which is all this client does
+   * (docs.taler.net/core/api-merchant.html, "Scopes and permissions").
+   */
+  scope?: string;
 }
 
 export interface CreatedOrder {
@@ -23,19 +29,39 @@ export interface CreatedOrder {
   payDeadlineS?: number;
 }
 
+export interface ContractTermsView {
+  amount?: string;
+  summary?: string;
+  order_id?: string;
+  fulfillment_url?: string;
+  fulfillment_message?: string;
+  merchant_base_url?: string;
+  pay_deadline?: { t_s?: number | "never" };
+  refund_deadline?: { t_s?: number | "never" };
+  exchanges?: { url?: string; master_pub?: string }[];
+}
+
 export interface OrderStatus {
   status: "unpaid" | "claimed" | "paid";
+  /** For an order with a claim token this already carries the "c" parameter. Treat as a secret. */
   talerPayUri?: string;
-  orderStatusUrl?: string;
   /** contract_terms (paid, claimed) or proto_contract_terms (unpaid). */
-  terms?: { amount?: string; summary?: string; fulfillment_url?: string; pay_deadline?: { t_s?: number | "never" } };
+  terms?: ContractTermsView;
+  /** last_payment, seconds since epoch (paid orders). */
+  lastPaymentS?: number;
+  refunded?: boolean;
+  refundAmount?: string;
   raw: unknown;
 }
 
-export interface PublicOrder {
+export interface ConfiguredExchange {
+  baseUrl: string;
+  currency: string;
+  masterPub: string;
+}
+
+export interface PublicStatus {
   httpStatus: number;
-  talerPayUri?: string;
-  fulfillmentUrl?: string;
 }
 
 export class MerchantError extends Error {
@@ -86,7 +112,7 @@ export class MerchantClient {
     if (!force && this.bearer && Date.now() < this.bearerExpiresMs - 30_000) return this.bearer;
     const basic = Buffer.from(`${this.o.instance}:${a.password}`).toString("base64");
     const { res, json } = await this.req("POST", "/private/token", {
-      body: { scope: "order-full", duration: { d_us: 3_600_000_000 }, description: "arvuna prototype" },
+      body: { scope: this.o.scope ?? "order-simple", duration: { d_us: 3_600_000_000 }, description: "arvuna prototype" },
       headers: { authorization: `Basic ${basic}` },
     });
     const j = json as { access_token?: string; expiration?: { t_s?: number } } | undefined;
@@ -104,20 +130,29 @@ export class MerchantClient {
     return r;
   }
 
-  /** GET /config on the backend root: currency fractional digits etc. */
-  async config(): Promise<{ currency: string; fractionalDigits: number; raw: unknown }> {
+  /**
+   * GET /config on the backend root: the exchanges the merchant trusts, each with base_url, the currency it is
+   * trusted for and its master public key (docs.taler.net/core/api-merchant.html, "Configuration API").
+   */
+  async exchangesFromConfig(): Promise<ConfiguredExchange[]> {
     const res = await this.f(`${this.o.baseUrl.replace(/\/+$/, "")}/config`, { signal: AbortSignal.timeout(this.o.timeoutMs ?? 15000) });
-    const j = (await res.json()) as { currency?: string; currencies?: Record<string, { num_fractional_normal_digits?: number }> };
-    const cur = j.currency ?? "";
-    const digits = j.currencies?.[cur]?.num_fractional_normal_digits ?? 2;
-    return { currency: cur, fractionalDigits: digits, raw: j };
+    if (!res.ok) throw new MerchantError(`config failed (${res.status})`, res.status, undefined);
+    const j = (await res.json()) as { exchanges?: { base_url?: string; currency?: string; master_pub?: string }[] };
+    return (j.exchanges ?? [])
+      .filter((e) => typeof e.base_url === "string" && typeof e.currency === "string" && typeof e.master_pub === "string")
+      .map((e) => ({ baseUrl: e.base_url!, currency: e.currency!, masterPub: e.master_pub! }));
   }
 
-  /** POST /private/orders. The fulfillment URL is where the wallet is sent after paying. */
-  async createOrder(o: { amount: string; summary: string; fulfillmentUrl: string; payDeadlineS?: number }): Promise<CreatedOrder> {
+  /**
+   * POST /private/orders. create_token is left at its default (true), so the order has a claim token; the token
+   * is not returned from here: it reaches the client only inside the Taler Pay URI (draft-taler-charge-02, "Binding").
+   * The fulfillment URL may hold the placeholder ${ORDER_ID}, which the backend replaces with the order identifier.
+   */
+  async createOrder(o: { amount: string; summary: string; fulfillmentUrl: string; payDeadlineS?: number; refundDeadlineS?: number }): Promise<CreatedOrder> {
     const order: Record<string, unknown> = { amount: o.amount, summary: o.summary, fulfillment_url: o.fulfillmentUrl };
     if (o.payDeadlineS !== undefined) order.pay_deadline = { t_s: o.payDeadlineS };
-    const { res, json } = await this.priv("POST", "/private/orders", { body: { order, create_token: false } });
+    if (o.refundDeadlineS !== undefined) order.refund_deadline = { t_s: o.refundDeadlineS };
+    const { res, json } = await this.priv("POST", "/private/orders", { body: { order } });
     const j = json as { order_id?: string; pay_deadline?: { t_s?: number } } | undefined;
     if (!res.ok || !j?.order_id) throw new MerchantError(`create order failed (${res.status})`, res.status, json);
     return { orderId: j.order_id, ...(typeof j.pay_deadline?.t_s === "number" ? { payDeadlineS: j.pay_deadline.t_s } : {}) };
@@ -128,7 +163,15 @@ export class MerchantClient {
     const q = opts.timeoutMs ? `?timeout_ms=${Math.floor(opts.timeoutMs)}` : "";
     const { res, json } = await this.priv("GET", `/private/orders/${encodeURIComponent(orderId)}${q}`, { extraMs: opts.timeoutMs ?? 0 });
     const j = json as
-      | { order_status?: string; taler_pay_uri?: string; order_status_url?: string; contract_terms?: OrderStatus["terms"]; proto_contract_terms?: OrderStatus["terms"] }
+      | {
+          order_status?: string;
+          taler_pay_uri?: string;
+          contract_terms?: ContractTermsView;
+          proto_contract_terms?: ContractTermsView;
+          last_payment?: { t_s?: number };
+          refunded?: boolean;
+          refund_amount?: string;
+        }
       | undefined;
     if (!res.ok || !j?.order_status) throw new MerchantError(`order status failed (${res.status})`, res.status, json);
     if (j.order_status !== "unpaid" && j.order_status !== "claimed" && j.order_status !== "paid") {
@@ -138,16 +181,27 @@ export class MerchantClient {
     return {
       status: j.order_status,
       ...(j.taler_pay_uri ? { talerPayUri: j.taler_pay_uri } : {}),
-      ...(j.order_status_url ? { orderStatusUrl: j.order_status_url } : {}),
       ...(terms ? { terms } : {}),
+      ...(typeof j.last_payment?.t_s === "number" ? { lastPaymentS: j.last_payment.t_s } : {}),
+      ...(typeof j.refunded === "boolean" ? { refunded: j.refunded } : {}),
+      ...(typeof j.refund_amount === "string" ? { refundAmount: j.refund_amount } : {}),
       raw: json,
     };
   }
+}
 
-  /** Unauthenticated GET /orders/{id}: a 402 with taler_pay_uri while the order is unpaid. */
-  async publicOrder(orderId: string): Promise<PublicOrder> {
-    const { res, json } = await this.req("GET", `/orders/${encodeURIComponent(orderId)}`);
-    const j = json as { taler_pay_uri?: string; fulfillment_url?: string } | undefined;
-    return { httpStatus: res.status, ...(j?.taler_pay_uri ? { talerPayUri: j.taler_pay_uri } : {}), ...(j?.fulfillment_url ? { fulfillmentUrl: j.fulfillment_url } : {}) };
-  }
+/**
+ * The public, credential-free order status used by x402 settle (draft-taler-charge-02, "Payload and Settle"):
+ * GET {merchantBaseUrl}orders/{orderId}?h_contract=... The answer is read from the status code alone:
+ * 200 paid, 402 not paid, 403 hash mismatch, 404 unknown. No Authorization header is sent.
+ */
+export async function publicOrderStatus(f: typeof fetch, merchantBaseUrl: string, orderId: string, hContract: string, opts: { timeoutMs?: number; waitMs?: number } = {}): Promise<PublicStatus> {
+  const q = new URLSearchParams({ h_contract: hContract });
+  if (opts.waitMs) q.set("timeout_ms", String(Math.floor(opts.waitMs)));
+  const res = await f(`${merchantBaseUrl}orders/${encodeURIComponent(orderId)}?${q}`, {
+    headers: { accept: "application/json" },
+    signal: AbortSignal.timeout((opts.timeoutMs ?? 15000) + (opts.waitMs ?? 0)),
+  });
+  await res.arrayBuffer(); // drain
+  return { httpStatus: res.status };
 }
